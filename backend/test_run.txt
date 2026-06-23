@@ -1,0 +1,430 @@
+============================= test session starts =============================
+platform win32 -- Python 3.10.5, pytest-9.1.1, pluggy-1.6.0
+rootdir: E:\Premises\premises\backend
+plugins: anyio-4.14.0, asyncio-1.4.0
+asyncio: mode=strict, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 3 items
+
+tests\test_main.py .                                                     [ 33%]
+tests\test_approvals.py .                                                [ 66%]
+tests\test_workflow.py F                                                 [100%]
+
+================================== FAILURES ===================================
+________________________ test_end_to_end_erp_workflow _________________________
+
+self = <ProactorEventLoop running=False closed=True debug=False>
+callback = <bound method BaseProtocol._on_waiter_completed of <asyncpg.protocol.protocol.Protocol object at 0x000001E4642ED640>>
+context = <_contextvars.Context object at 0x000001E464D23940>
+args = (<Future finished exception=AttributeError("'NoneType' object has no attribute 'send'")>,)
+
+    def call_soon(self, callback, *args, context=None):
+        """Arrange for a callback to be called as soon as possible.
+    
+        This operates as a FIFO queue: callbacks are called in the
+        order in which they are registered.  Each callback will be
+        called exactly once.
+    
+        Any positional arguments after the callback will be passed to
+        the callback when it is called.
+        """
+>       self._check_closed()
+
+C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\asyncio\base_events.py:750: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <ProactorEventLoop running=False closed=True debug=False>
+
+    def _check_closed(self):
+        if self._closed:
+>           raise RuntimeError('Event loop is closed')
+E           RuntimeError: Event loop is closed
+
+C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\asyncio\base_events.py:515: RuntimeError
+
+During handling of the above exception, another exception occurred:
+
+    async def init_db() -> None:
+        """
+        Synchronize all ORM model tables to the database.
+    
+        Must connect to PostgreSQL. If unreachable, raises a RuntimeError.
+        """
+        # Import all ORM models so their tables are registered on Base.metadata
+        from app.models.base import Base as ModelBase  # noqa: F401
+        from sqlalchemy.engine import make_url
+    
+        try:
+            url = make_url(settings.DATABASE_URL)
+        except Exception as parse_err:
+            logger.critical(f"Invalid DATABASE_URL format: {parse_err}")
+            raise RuntimeError(
+                f"Configuration Error: Invalid DATABASE_URL format. Please check your backend/.env file."
+            ) from parse_err
+    
+        # Print startup logging details
+        env_name = "Development" if settings.DEV_MODE else "Production"
+        logger.info("=" * 60)
+        logger.info(f"Project: {settings.PROJECT_NAME}")
+        logger.info(f"Environment: {env_name}")
+        logger.info("Database:")
+        logger.info(f"  Host: {url.host}")
+        logger.info(f"  Port: {url.port}")
+        logger.info(f"  Database: {url.database}")
+    
+        try:
+            # Verify connection and synchronize database tables
+>           async with engine.begin() as conn:
+
+app\database\database.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\contextlib.py:199: in __aenter__
+    return await anext(self.gen)
+C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\sqlalchemy\ext\asyncio\engine.py:1068: in begin
+    async with conn:
+C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\sqlalchemy\ext\asyncio\base.py:121: in __aenter__
+    return await self.start(is_ctxmanager=True)
+C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\sqlalchemy\ext\asyncio\engine.py:275: in start
+    await greenlet_spawn(self.sync_engine.connect)
+C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:201: in greenlet_spawn
+    result = context.throw(*sys.exc_info())
+C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\sqlalchemy\engine\base.py:3295: in connect
+    return self._connection_cls(self)
+C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\sqlalchemy\engine\base.py:144: in __init__
+    self._dbapi_connection = engine.raw_connection()
+C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\sqlalchemy\engine\base.py:3319: in raw_connection
+    return self.pool.connect()
+C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\sqlalchemy\pool\base.py:448: in connect
+    return _ConnectionFairy._checkout(self)
+C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\sqlalchemy\pool\base.py:1371: in _checkout
+    with util.safe_reraise():
+C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\sqlalchemy\util\langhelpers.py:122: in __exit__
+    raise exc_value.with_traceback(exc_tb)
+C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\sqlalchemy\pool\base.py:1309: in _checkout
+    result = pool._dialect._do_ping_w_event(
+C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\sqlalchemy\engine\default.py:729: in _do_ping_w_event
+    return self.do_ping(dbapi_connection)
+C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py:1164: in do_ping
+    dbapi_connection.ping()
+C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py:818: in ping
+    self._handle_exception(error)
+C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py:799: in _handle_exception
+    raise error
+C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py:816: in ping
+    _ = self.await_(self._async_ping())
+C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\sqlalchemy\util\_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py:825: in _async_ping
+    await tr.start()
+C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\asyncpg\transaction.py:146: in start
+    await self._connection.execute(query)
+C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\asyncpg\connection.py:354: in execute
+    result = await self._protocol.query(query, timeout)
+asyncpg/protocol/protocol.pyx:369: in query
+    ???
+asyncpg/protocol/protocol.pyx:362: in asyncpg.protocol.protocol.BaseProtocol.query
+    ???
+asyncpg/protocol/coreproto.pyx:1174: in asyncpg.protocol.protocol.CoreProtocol._simple_query
+    ???
+asyncpg/protocol/protocol.pyx:956: in asyncpg.protocol.protocol.BaseProtocol._write
+    ???
+C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\asyncio\proactor_events.py:361: in write
+    self._loop_writing(data=bytes(data))
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <_ProactorSocketTransport fd=968 read=<_OverlappedFuture cancelled>>
+f = None, data = b'Q\x00\x00\x00\x0bBEGIN;\x00'
+
+    def _loop_writing(self, f=None, data=None):
+        try:
+            if f is not None and self._write_fut is None and self._closing:
+                # XXX most likely self._force_close() has been called, and
+                # it has set self._write_fut to None.
+                return
+            assert f is self._write_fut
+            self._write_fut = None
+            self._pending_write = 0
+            if f:
+                f.result()
+            if data is None:
+                data = self._buffer
+                self._buffer = None
+            if not data:
+                if self._closing:
+                    self._loop.call_soon(self._call_connection_lost, None)
+                if self._eof_written:
+                    self._sock.shutdown(socket.SHUT_WR)
+                # Now that we've reduced the buffer size, tell the
+                # protocol to resume writing if it was paused.  Note that
+                # we do this last since the callback is called immediately
+                # and it may add more data to the buffer (even causing the
+                # protocol to be paused again).
+                self._maybe_resume_protocol()
+            else:
+>               self._write_fut = self._loop._proactor.send(self._sock, data)
+E               AttributeError: 'NoneType' object has no attribute 'send'
+
+C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\asyncio\proactor_events.py:397: AttributeError
+
+The above exception was the direct cause of the following exception:
+
+    @pytest.mark.asyncio
+    async def test_end_to_end_erp_workflow():
+>       await init_db()
+
+tests\test_workflow.py:16: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    async def init_db() -> None:
+        """
+        Synchronize all ORM model tables to the database.
+    
+        Must connect to PostgreSQL. If unreachable, raises a RuntimeError.
+        """
+        # Import all ORM models so their tables are registered on Base.metadata
+        from app.models.base import Base as ModelBase  # noqa: F401
+        from sqlalchemy.engine import make_url
+    
+        try:
+            url = make_url(settings.DATABASE_URL)
+        except Exception as parse_err:
+            logger.critical(f"Invalid DATABASE_URL format: {parse_err}")
+            raise RuntimeError(
+                f"Configuration Error: Invalid DATABASE_URL format. Please check your backend/.env file."
+            ) from parse_err
+    
+        # Print startup logging details
+        env_name = "Development" if settings.DEV_MODE else "Production"
+        logger.info("=" * 60)
+        logger.info(f"Project: {settings.PROJECT_NAME}")
+        logger.info(f"Environment: {env_name}")
+        logger.info("Database:")
+        logger.info(f"  Host: {url.host}")
+        logger.info(f"  Port: {url.port}")
+        logger.info(f"  Database: {url.database}")
+    
+        try:
+            # Verify connection and synchronize database tables
+            async with engine.begin() as conn:
+                from sqlalchemy import text
+                await conn.execute(text("SELECT 1"))
+                await conn.run_sync(ModelBase.metadata.create_all)
+    
+                # Execute migrations dynamically for newly added configuration settings
+                await conn.execute(text("ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS require_mfa BOOLEAN NOT NULL DEFAULT FALSE"))
+                await conn.execute(text("ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS restrict_devices BOOLEAN NOT NULL DEFAULT TRUE"))
+                await conn.execute(text("ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS log_admin_actions BOOLEAN NOT NULL DEFAULT TRUE"))
+                await conn.execute(text("ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS notify_on_device_change BOOLEAN NOT NULL DEFAULT TRUE"))
+                await conn.execute(text("ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS notify_on_exit_violation BOOLEAN NOT NULL DEFAULT TRUE"))
+                await conn.execute(text("ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS notify_on_approvals BOOLEAN NOT NULL DEFAULT TRUE"))
+                await conn.execute(text("ALTER TABLE geofences ADD COLUMN IF NOT EXISTS updated_by VARCHAR(255)"))
+                await conn.execute(text("ALTER TABLE faculty ADD COLUMN IF NOT EXISTS phone_number VARCHAR(30)"))
+                await conn.execute(text("ALTER TABLE faculty ADD COLUMN IF NOT EXISTS emergency_contact VARCHAR(255)"))
+                await conn.execute(text("ALTER TABLE faculty ADD COLUMN IF NOT EXISTS profile_photo_url TEXT"))
+                await conn.execute(text("ALTER TABLE devices ADD COLUMN IF NOT EXISTS os_version TEXT"))
+                await conn.execute(text("ALTER TABLE devices ADD COLUMN IF NOT EXISTS manufacturer TEXT"))
+                await conn.execute(text("ALTER TABLE faculty_registration_requests ADD COLUMN IF NOT EXISTS rejection_reason TEXT"))
+                await conn.execute(text("ALTER TABLE device_change_requests ADD COLUMN IF NOT EXISTS reason TEXT"))
+                await conn.execute(text("ALTER TABLE device_change_requests ADD COLUMN IF NOT EXISTS rejection_reason TEXT"))
+                await conn.execute(text("ALTER TABLE reason_requests ADD COLUMN IF NOT EXISTS rejection_reason TEXT"))
+    
+                # Update foreign key constraints to be single-column and prevent NotNullViolationError on deletes
+                # 1. fk_dev_old_device
+                try:
+                    await conn.execute(text("ALTER TABLE device_change_requests DROP CONSTRAINT IF EXISTS fk_dev_old_device"))
+                    await conn.execute(text("ALTER TABLE device_change_requests ADD CONSTRAINT fk_dev_old_device FOREIGN KEY (old_device_id) REFERENCES devices(id) ON DELETE SET NULL"))
+                except Exception as e:
+                    logger.warning(f"Could not migrate fk_dev_old_device constraint: {e}")
+    
+                # 2. fk_dev_reviewer
+                try:
+                    await conn.execute(text("ALTER TABLE device_change_requests DROP CONSTRAINT IF EXISTS fk_dev_reviewer"))
+                    await conn.execute(text("ALTER TABLE device_change_requests ADD CONSTRAINT fk_dev_reviewer FOREIGN KEY (reviewed_by) REFERENCES admins(id) ON DELETE SET NULL"))
+                except Exception as e:
+                    logger.warning(f"Could not migrate fk_dev_reviewer constraint: {e}")
+    
+                # 3. fk_reg_reviewer
+                try:
+                    await conn.execute(text("ALTER TABLE faculty_registration_requests DROP CONSTRAINT IF EXISTS fk_reg_reviewer"))
+                    await conn.execute(text("ALTER TABLE faculty_registration_requests ADD CONSTRAINT fk_reg_reviewer FOREIGN KEY (reviewed_by) REFERENCES admins(id) ON DELETE SET NULL"))
+                except Exception as e:
+                    logger.warning(f"Could not migrate fk_reg_reviewer constraint: {e}")
+    
+                # 4. fk_reason_reviewer
+                try:
+                    await conn.execute(text("ALTER TABLE reason_requests DROP CONSTRAINT IF EXISTS fk_reason_reviewer"))
+                    await conn.execute(text("ALTER TABLE reason_requests ADD CONSTRAINT fk_reason_reviewer FOREIGN KEY (reviewed_by) REFERENCES admins(id) ON DELETE SET NULL"))
+                except Exception as e:
+                    logger.warning(f"Could not migrate fk_reason_reviewer constraint: {e}")
+    
+    
+                # Automatic recovery of organization domains
+                orgs_res = await conn.execute(text("SELECT id, name FROM organizations WHERE domain IS NULL"))
+                orgs = orgs_res.fetchall()
+    
+                PUBLIC_DOMAINS = {
+                    "gmail.com", "googlemail.com",
+                    "yahoo.com", "yahoo.co.in", "yahoo.co.uk", "yahoo.com.br", "yahoo.com.mx", "ymail.com",
+                    "outlook.com", "hotmail.com", "live.com", "msn.com", "live.co.uk", "hotmail.co.uk", "hotmail.fr",
+                    "protonmail.com", "protonmail.ch", "proton.me",
+                    "zoho.com", "zoho.in", "zoho.eu",
+                    "aol.com", "mail.com", "icloud.com", "me.com", "mac.com",
+                    "yandex.com", "yandex.ru", "yandex.by", "yandex.kz", "yandex.ua",
+                    "gmx.com", "gmx.net", "gmx.de", "gmx.at", "gmx.ch",
+                    "mail.ru", "inbox.ru", "list.ru", "bk.ru",
+                    "rediffmail.com", "lycos.com", "fastmail.com", "hushmail.com"
+                }
+    
+                def is_public_email_domain(dom: str) -> bool:
+                    dom = dom.strip().lower()
+                    if dom in PUBLIC_DOMAINS:
+                        return True
+                    parts = dom.split('.')
+                    if len(parts) >= 2:
+                        last_two = ".".join(parts[-2:])
+                        if last_two in PUBLIC_DOMAINS:
+                            return True
+                        if len(parts) >= 3:
+                            last_three = ".".join(parts[-3:])
+                            if last_three in PUBLIC_DOMAINS:
+                                return True
+                    return False
+    
+                for org in orgs:
+                    org_id = org[0]
+                    org_name = org[1]
+                    admin_res = await conn.execute(
+                        text("SELECT email FROM admins WHERE organization_id = :org_id ORDER BY created_at LIMIT 1"),
+                        {"org_id": org_id}
+                    )
+                    admin = admin_res.fetchone()
+                    if admin and admin[0]:
+                        email = admin[0].strip().lower()
+                        if "@" in email:
+                            domain = email.split("@")[-1].strip()
+                            if not is_public_email_domain(domain):
+                                await conn.execute(
+                                    text("UPDATE organizations SET domain = :domain WHERE id = :org_id"),
+                                    {"domain": domain, "org_id": org_id}
+                                )
+                                logger.info(f"[RECOVERY] Automatically recovered and set domain '{domain}' for organization '{org_name}' (ID: {org_id}) based on admin email '{email}'.")
+    
+    
+            logger.info("  Connection: Successful")
+            logger.info("=" * 60)
+            logger.info("Database tables synchronized successfully.")
+    
+        except Exception as e:
+            logger.critical("  Connection: Failed")
+            logger.info("=" * 60)
+            logger.critical(f"Database connection or synchronization failed: {e}")
+    
+            # Check if database does not exist
+            err_msg = str(e).lower()
+            if "database" in err_msg and ("does not exist" in err_msg or "3d000" in err_msg):
+                raise RuntimeError(
+                    f"PostgreSQL Connection Error: The database '{url.database}' does not exist on "
+                    f"PostgreSQL server at '{url.host}:{url.port}'. Please create the database first."
+                ) from e
+            else:
+>               raise RuntimeError(
+                    "PostgreSQL is not running. Please start PostgreSQL and restart the backend."
+                ) from e
+E               RuntimeError: PostgreSQL is not running. Please start PostgreSQL and restart the backend.
+
+app\database\database.py:188: RuntimeError
+------------------------------ Captured log call ------------------------------
+ERROR    sqlalchemy.pool.impl.AsyncAdaptedQueuePool:base.py:377 Exception terminating connection <AdaptedConnection <asyncpg.connection.Connection object at 0x000001E4645CDD50>>
+Traceback (most recent call last):
+  File "C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\sqlalchemy\pool\base.py", line 373, in _close_connection
+    self._dialect.do_terminate(connection)
+  File "C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 1131, in do_terminate
+    dbapi_connection.terminate()
+  File "C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\sqlalchemy\connectors\asyncio.py", line 402, in terminate
+    self.await_(asyncio.shield(self._terminate_graceful_close()))  # type: ignore[attr-defined] # noqa: E501
+  File "C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+  File "C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+  File "C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\asyncio\tasks.py", line 304, in __wakeup
+    future.result()
+  File "C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 912, in _terminate_graceful_close
+    await self._connection.close(timeout=2)
+  File "C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\asyncpg\connection.py", line 1513, in close
+    await self._protocol.close(timeout)
+  File "asyncpg/protocol/protocol.pyx", line 617, in close
+  File "asyncpg/protocol/protocol.pyx", line 650, in asyncpg.protocol.protocol.BaseProtocol._request_cancel
+  File "C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\asyncpg\connection.py", line 1682, in _cancel_current_command
+    self._cancellations.add(self._loop.create_task(self._cancel(waiter)))
+  File "C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\asyncio\base_events.py", line 436, in create_task
+    self._check_closed()
+  File "C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\asyncio\base_events.py", line 515, in _check_closed
+    raise RuntimeError('Event loop is closed')
+RuntimeError: Event loop is closed
+CRITICAL app.database:database.py:176   Connection: Failed
+CRITICAL app.database:database.py:178 Database connection or synchronization failed: 'NoneType' object has no attribute 'send'
+============================== warnings summary ===============================
+C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\fastapi\testclient.py:1
+  C:\Users\premz\AppData\Local\Programs\Python\Python310\lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+app\schemas\attendance.py:16
+  E:\Premises\premises\backend\app\schemas\attendance.py:16: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class LocationEventResponse(BaseModel):
+
+app\schemas\attendance.py:27
+  E:\Premises\premises\backend\app\schemas\attendance.py:27: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class AttendanceRecordResponse(BaseModel):
+
+app\schemas\geofence.py:19
+  E:\Premises\premises\backend\app\schemas\geofence.py:19: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class GeofenceResponse(GeofenceBase):
+
+app\schemas\geofence.py:42
+  E:\Premises\premises\backend\app\schemas\geofence.py:42: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class AttendancePolicyResponse(AttendancePolicyBase):
+
+app\schemas\organization.py:18
+  E:\Premises\premises\backend\app\schemas\organization.py:18: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class OrganizationResponse(OrganizationBase):
+
+app\schemas\organization.py:28
+  E:\Premises\premises\backend\app\schemas\organization.py:28: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class OrganizationSettingsResponse(BaseModel):
+
+app\schemas\organization.py:77
+  E:\Premises\premises\backend\app\schemas\organization.py:77: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class DepartmentResponse(DepartmentBase):
+
+tests/test_approvals.py::test_approvals_and_notifications_workflow
+  sys:1: SAWarning: relationship 'Faculty.department' will copy column departments.organization_id to column faculty.organization_id, which conflicts with relationship(s): 'Faculty.organization' (copies organizations.id to faculty.organization_id). If this is not the intention, consider if these relationships should be linked with back_populates, or if viewonly=True should be applied to one or more if they are read-only. For the less common case that foreign key constraints are partially overlapping, the orm.foreign() annotation can be used to isolate the columns that should be written towards.   To silence this warning, add the parameter 'overlaps="organization"' to the 'Faculty.department' relationship. (Background on this warning at: https://sqlalche.me/e/20/qzyx) (This warning originated from the `configure_mappers()` process, which was invoked automatically in response to a user-initiated operation.)
+
+tests/test_approvals.py::test_approvals_and_notifications_workflow
+  sys:1: SAWarning: relationship 'ReasonRequest.faculty' will copy column faculty.organization_id to column reason_requests.organization_id, which conflicts with relationship(s): 'ReasonRequest.organization' (copies organizations.id to reason_requests.organization_id). If this is not the intention, consider if these relationships should be linked with back_populates, or if viewonly=True should be applied to one or more if they are read-only. For the less common case that foreign key constraints are partially overlapping, the orm.foreign() annotation can be used to isolate the columns that should be written towards.   To silence this warning, add the parameter 'overlaps="organization"' to the 'ReasonRequest.faculty' relationship. (Background on this warning at: https://sqlalche.me/e/20/qzyx) (This warning originated from the `configure_mappers()` process, which was invoked automatically in response to a user-initiated operation.)
+
+tests/test_approvals.py::test_approvals_and_notifications_workflow
+  sys:1: SAWarning: relationship 'ReasonRequest.attendance_record' will copy column attendance_records.organization_id to column reason_requests.organization_id, which conflicts with relationship(s): 'ReasonRequest.faculty' (copies faculty.organization_id to reason_requests.organization_id), 'ReasonRequest.organization' (copies organizations.id to reason_requests.organization_id). If this is not the intention, consider if these relationships should be linked with back_populates, or if viewonly=True should be applied to one or more if they are read-only. For the less common case that foreign key constraints are partially overlapping, the orm.foreign() annotation can be used to isolate the columns that should be written towards.   To silence this warning, add the parameter 'overlaps="faculty,organization"' to the 'ReasonRequest.attendance_record' relationship. (Background on this warning at: https://sqlalche.me/e/20/qzyx) (This warning originated from the `configure_mappers()` process, which was invoked automatically in response to a user-initiated operation.)
+
+tests/test_approvals.py::test_approvals_and_notifications_workflow
+  sys:1: SAWarning: relationship 'FacultyRegistrationRequest.faculty' will copy column faculty.organization_id to column faculty_registration_requests.organization_id, which conflicts with relationship(s): 'FacultyRegistrationRequest.organization' (copies organizations.id to faculty_registration_requests.organization_id). If this is not the intention, consider if these relationships should be linked with back_populates, or if viewonly=True should be applied to one or more if they are read-only. For the less common case that foreign key constraints are partially overlapping, the orm.foreign() annotation can be used to isolate the columns that should be written towards.   To silence this warning, add the parameter 'overlaps="organization"' to the 'FacultyRegistrationRequest.faculty' relationship. (Background on this warning at: https://sqlalche.me/e/20/qzyx) (This warning originated from the `configure_mappers()` process, which was invoked automatically in response to a user-initiated operation.)
+
+tests/test_approvals.py::test_approvals_and_notifications_workflow
+  sys:1: SAWarning: relationship 'DeviceChangeRequest.faculty' will copy column faculty.organization_id to column device_change_requests.organization_id, which conflicts with relationship(s): 'DeviceChangeRequest.organization' (copies organizations.id to device_change_requests.organization_id). If this is not the intention, consider if these relationships should be linked with back_populates, or if viewonly=True should be applied to one or more if they are read-only. For the less common case that foreign key constraints are partially overlapping, the orm.foreign() annotation can be used to isolate the columns that should be written towards.   To silence this warning, add the parameter 'overlaps="organization"' to the 'DeviceChangeRequest.faculty' relationship. (Background on this warning at: https://sqlalche.me/e/20/qzyx) (This warning originated from the `configure_mappers()` process, which was invoked automatically in response to a user-initiated operation.)
+
+tests/test_approvals.py::test_approvals_and_notifications_workflow
+  sys:1: SAWarning: relationship 'Notification.faculty' will copy column faculty.organization_id to column notifications.organization_id, which conflicts with relationship(s): 'Notification.organization' (copies organizations.id to notifications.organization_id). If this is not the intention, consider if these relationships should be linked with back_populates, or if viewonly=True should be applied to one or more if they are read-only. For the less common case that foreign key constraints are partially overlapping, the orm.foreign() annotation can be used to isolate the columns that should be written towards.   To silence this warning, add the parameter 'overlaps="organization"' to the 'Notification.faculty' relationship. (Background on this warning at: https://sqlalche.me/e/20/qzyx) (This warning originated from the `configure_mappers()` process, which was invoked automatically in response to a user-initiated operation.)
+
+tests/test_approvals.py::test_approvals_and_notifications_workflow
+  sys:1: SAWarning: relationship 'PolicyChangeHistory.admin' will copy column admins.organization_id to column policy_change_history.organization_id, which conflicts with relationship(s): 'PolicyChangeHistory.organization' (copies organizations.id to policy_change_history.organization_id). If this is not the intention, consider if these relationships should be linked with back_populates, or if viewonly=True should be applied to one or more if they are read-only. For the less common case that foreign key constraints are partially overlapping, the orm.foreign() annotation can be used to isolate the columns that should be written towards.   To silence this warning, add the parameter 'overlaps="organization"' to the 'PolicyChangeHistory.admin' relationship. (Background on this warning at: https://sqlalche.me/e/20/qzyx) (This warning originated from the `configure_mappers()` process, which was invoked automatically in response to a user-initiated operation.)
+
+tests/test_approvals.py::test_approvals_and_notifications_workflow
+  sys:1: SAWarning: relationship 'LocationEvent.organization' will copy column organizations.id to column location_events.organization_id, which conflicts with relationship(s): 'AttendanceRecord.events' (copies attendance_records.organization_id to location_events.organization_id). If this is not the intention, consider if these relationships should be linked with back_populates, or if viewonly=True should be applied to one or more if they are read-only. For the less common case that foreign key constraints are partially overlapping, the orm.foreign() annotation can be used to isolate the columns that should be written towards.   To silence this warning, add the parameter 'overlaps="events"' to the 'LocationEvent.organization' relationship. (Background on this warning at: https://sqlalche.me/e/20/qzyx) (This warning originated from the `configure_mappers()` process, which was invoked automatically in response to a user-initiated operation.)
+
+tests/test_approvals.py::test_approvals_and_notifications_workflow
+  sys:1: SAWarning: relationship 'LocationEvent.attendance_record' will copy column attendance_records.organization_id to column location_events.organization_id, which conflicts with relationship(s): 'LocationEvent.organization' (copies organizations.id to location_events.organization_id). If this is not the intention, consider if these relationships should be linked with back_populates, or if viewonly=True should be applied to one or more if they are read-only. For the less common case that foreign key constraints are partially overlapping, the orm.foreign() annotation can be used to isolate the columns that should be written towards.   To silence this warning, add the parameter 'overlaps="organization"' to the 'LocationEvent.attendance_record' relationship. (Background on this warning at: https://sqlalche.me/e/20/qzyx) (This warning originated from the `configure_mappers()` process, which was invoked automatically in response to a user-initiated operation.)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_workflow.py::test_end_to_end_erp_workflow - RuntimeError: P...
+================== 1 failed, 2 passed, 17 warnings in 3.51s ===================

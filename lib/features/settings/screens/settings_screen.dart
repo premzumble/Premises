@@ -1,0 +1,2454 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'dart:convert';
+import 'dart:math' as math;
+import 'package:http/http.dart' as http;
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+import '../../../core/design_system/app_colors.dart';
+import '../../../core/design_system/app_sizes.dart';
+import '../../../core/design_system/app_typography.dart';
+import '../../../core/widgets/button.dart';
+import '../../../core/widgets/dialogs.dart';
+import '../../../core/widgets/input.dart';
+import '../../../core/session_manager.dart';
+import '../../../core/api_service.dart';
+import '../../../core/app_config.dart';
+import 'package:go_router/go_router.dart';
+
+class SettingsScreen extends StatefulWidget {
+  const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  // Navigation Section State
+  String _activeSection = 'General';
+  final List<Map<String, dynamic>> _sections = [
+    {'name': 'General', 'icon': Icons.tune},
+    {'name': 'Attendance Policy', 'icon': Icons.policy_outlined},
+    {'name': 'Working Hours', 'icon': Icons.access_time},
+    {'name': 'Campus Geofence', 'icon': Icons.map_outlined},
+    {'name': 'Departments', 'icon': Icons.business_outlined},
+    {'name': 'Security', 'icon': Icons.shield_outlined},
+    {'name': 'Notifications', 'icon': Icons.notifications_outlined},
+    {'name': 'Account', 'icon': Icons.person_outline},
+    if (kDebugMode) {'name': 'Developer Tools', 'icon': Icons.science_outlined},
+  ];
+
+  // General Settings State
+  String _facultyRegistrationMode = 'ADMIN_APPROVAL';
+  bool _allowExternalEmails = false;
+
+  // Attendance Policy State
+  final _allowedOutsideController = TextEditingController(text: '25');
+  final _reminder1Controller = TextEditingController(text: '25');
+  final _reminder2Controller = TextEditingController(text: '28');
+  final _reminder3Controller = TextEditingController(text: '31');
+  final _evaluationController = TextEditingController(text: '35');
+  TimeOfDay _halfDayTime = const TimeOfDay(hour: 14, minute: 30);
+  TimeOfDay _absentTime = const TimeOfDay(hour: 14, minute: 30);
+
+  // Working Hours State
+  TimeOfDay _workStartTime = const TimeOfDay(hour: 9, minute: 0);
+  TimeOfDay _workEndTime = const TimeOfDay(hour: 17, minute: 0);
+
+  // Campus Geofence State (Visual Configurator Variables)
+  final _latitudeController = TextEditingController(text: '18.403817');
+  final _longitudeController = TextEditingController(text: '76.560943');
+  final _manualLatController = TextEditingController(text: '18.403817');
+  final _manualLngController = TextEditingController(text: '76.560943');
+  final _coordsFormKey = GlobalKey<FormState>();
+  bool _hasGeofence = false;
+  double? _savedLatitude;
+  double? _savedLongitude;
+  double? _savedRadiusMeters;
+  double _radiusMeters = 500.0;
+  final _searchController = TextEditingController();
+
+  final MapController _mapController = MapController();
+  LatLng? _testLatLng;
+  bool _isTestMode = false;
+  String? _testResult;
+  bool _isSearching = false;
+  List<Map<String, dynamic>> _searchResults = [];
+  bool _showSuggestions = false;
+  bool _isSavingGeofence = false;
+  bool _isLoadingGeofence = false;
+  final String _baseUrl = kBaseUrl;
+
+  // Departments State
+  final List<String> _departments = ['Computer Science', 'Electrical Engineering', 'Mechanical', 'Administration'];
+  final _newDeptController = TextEditingController();
+
+  // Security Settings State
+  bool _requireMfa = false;
+  bool _restrictDevices = true;
+  bool _logAdminActions = true;
+
+  // Notifications Settings State
+  bool _notifyOnDeviceChange = true;
+  bool _notifyOnExitViolation = true;
+  bool _notifyOnApprovals = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _latitudeController.addListener(_onCoordsChanged);
+    _longitudeController.addListener(_onCoordsChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadAllSettings();
+    });
+  }
+
+  @override
+  void dispose() {
+    _latitudeController.removeListener(_onCoordsChanged);
+    _longitudeController.removeListener(_onCoordsChanged);
+    _allowedOutsideController.dispose();
+    _reminder1Controller.dispose();
+    _reminder2Controller.dispose();
+    _reminder3Controller.dispose();
+    _evaluationController.dispose();
+    _latitudeController.dispose();
+    _longitudeController.dispose();
+    _manualLatController.dispose();
+    _manualLngController.dispose();
+    _searchController.dispose();
+    _newDeptController.dispose();
+    super.dispose();
+  }
+
+  void _onCoordsChanged() {
+    final double? lat = double.tryParse(_latitudeController.text);
+    final double? lng = double.tryParse(_longitudeController.text);
+    if (lat != null && lng != null) {
+      try {
+        _mapController.move(LatLng(lat, lng), _mapController.camera.zoom);
+      } catch (_) {}
+      
+      // Synchronize manual coordinates text fields
+      if (_manualLatController.text != _latitudeController.text) {
+        _manualLatController.text = _latitudeController.text;
+      }
+      if (_manualLngController.text != _longitudeController.text) {
+        _manualLngController.text = _longitudeController.text;
+      }
+      setState(() {});
+    }
+  }
+
+  double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
+    const p = 0.017453292519943295; // pi / 180
+    final a = 0.5 - math.cos((lat2 - lat1) * p) / 2 +
+        math.cos(lat1 * p) * math.cos(lat2 * p) *
+        (1 - math.cos((lon2 - lon1) * p)) / 2;
+    return 12742000 * math.asin(math.sqrt(a)); // 2 * R * 1000 where R = 6371 km
+  }
+
+
+  Future<String?> _getAuthToken() async {
+    // Use the token already in session (set at login)
+    if (SessionManager.accessToken != null) {
+      return SessionManager.accessToken;
+    }
+    // No session — can't auto-authenticate, return null
+    return null;
+  }
+
+
+  Future<void> _fetchGeofence() async {
+    setState(() {
+      _isLoadingGeofence = true;
+    });
+    final token = await _getAuthToken();
+    if (token == null) {
+      debugPrint('Could not authenticate with backend. Cannot fetch geofence.');
+      setState(() {
+        _isLoadingGeofence = false;
+      });
+      return;
+    }
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/api/v1/geofence/'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (response.statusCode == 200) {
+        final resData = json.decode(response.body);
+        if (resData['success'] == true && resData['data'] is List && (resData['data'] as List).isNotEmpty) {
+          final geofence = resData['data'][0];
+          final double lat = (geofence['latitude'] as num).toDouble();
+          final double lng = (geofence['longitude'] as num).toDouble();
+          final double rad = (geofence['radius_meters'] as num).toDouble();
+          setState(() {
+            _savedLatitude = lat;
+            _savedLongitude = lng;
+            _savedRadiusMeters = rad;
+            _latitudeController.text = lat.toStringAsFixed(6);
+            _longitudeController.text = lng.toStringAsFixed(6);
+            _manualLatController.text = lat.toStringAsFixed(6);
+            _manualLngController.text = lng.toStringAsFixed(6);
+            _radiusMeters = rad;
+            _hasGeofence = true;
+            try {
+              _mapController.move(LatLng(lat, lng), 15.0);
+            } catch (_) {}
+          });
+        } else {
+          setState(() {
+            _savedLatitude = null;
+            _savedLongitude = null;
+            _savedRadiusMeters = null;
+            _hasGeofence = false;
+            // Use fallback center but do not save until admin submits
+            _latitudeController.text = '18.403817';
+            _longitudeController.text = '76.560943';
+            _manualLatController.text = '18.403817';
+            _manualLngController.text = '76.560943';
+            _radiusMeters = 500.0;
+            try {
+              _mapController.move(const LatLng(18.403817, 76.560943), 15.0);
+            } catch (_) {}
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Failed to fetch geofences from backend: $e');
+    } finally {
+      setState(() {
+        _isLoadingGeofence = false;
+      });
+    }
+  }
+
+  Future<void> _saveGeofence() async {
+    final double? lat = double.tryParse(_latitudeController.text);
+    final double? lng = double.tryParse(_longitudeController.text);
+    if (lat == null || lng == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Invalid coordinates. Please enter valid numbers.'),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _isSavingGeofence = true;
+    });
+
+    final token = await _getAuthToken();
+    if (token == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to authenticate with backend. Configuration saved locally.'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+      setState(() {
+        _isSavingGeofence = false;
+      });
+      return;
+    }
+
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/api/v1/geofence/'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: json.encode({
+          'name': 'Campus Boundary',
+          'latitude': lat,
+          'longitude': lng,
+          'radius_meters': _radiusMeters,
+          'is_active': true,
+        }),
+      );
+      if (response.statusCode == 200) {
+        final resData = json.decode(response.body);
+        if (resData['success'] == true) {
+          setState(() {
+            _hasGeofence = true;
+            _savedLatitude = lat;
+            _savedLongitude = lng;
+            _savedRadiusMeters = _radiusMeters;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Campus geofence settings persisted to PostgreSQL backend.'),
+              backgroundColor: AppColors.success,
+            ),
+          );
+          return;
+        }
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to save settings: ${response.body}'),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error connecting to backend: ${_cleanErrorMessage(e)}. Saved locally.'),
+          backgroundColor: AppColors.warning,
+        ),
+      );
+    } finally {
+      setState(() {
+        _isSavingGeofence = false;
+      });
+    }
+  }
+
+  bool _isLoadingSettings = false;
+  List<Map<String, dynamic>> _dbDepartments = [];
+
+  Future<void> _loadAllSettings() async {
+    setState(() {
+      _isLoadingSettings = true;
+    });
+    try {
+      await _fetchGeofence();
+    } catch (e) {
+      debugPrint('Error loading geofence: $e');
+    }
+
+    try {
+      final orgSettings = await ApiService.fetchSettings();
+      setState(() {
+        _facultyRegistrationMode = orgSettings['faculty_registration_mode'] ?? 'ADMIN_APPROVAL';
+        _allowExternalEmails = orgSettings['allow_external_emails'] ?? false;
+        _requireMfa = orgSettings['require_mfa'] ?? false;
+        _restrictDevices = orgSettings['restrict_devices'] ?? true;
+        _logAdminActions = orgSettings['log_admin_actions'] ?? true;
+        _notifyOnDeviceChange = orgSettings['notify_on_device_change'] ?? true;
+        _notifyOnExitViolation = orgSettings['notify_on_exit_violation'] ?? true;
+        _notifyOnApprovals = orgSettings['notify_on_approvals'] ?? true;
+      });
+    } catch (e) {
+      debugPrint('Error loading settings: $e');
+    }
+
+    try {
+      final policy = await ApiService.fetchPolicy();
+      setState(() {
+        _allowedOutsideController.text = (policy['allowed_outside_minutes'] ?? 0).toString();
+        _reminder1Controller.text = (policy['reminder_1_minutes'] ?? 0).toString();
+        _reminder2Controller.text = (policy['reminder_2_minutes'] ?? 0).toString();
+        _reminder3Controller.text = (policy['reminder_3_minutes'] ?? 0).toString();
+        _evaluationController.text = (policy['evaluation_minutes'] ?? 15).toString();
+
+        if (policy['start_time'] != null) {
+          final parts = policy['start_time'].split(':');
+          _workStartTime = TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+        }
+        if (policy['end_time'] != null) {
+          final parts = policy['end_time'].split(':');
+          _workEndTime = TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+        }
+        if (policy['half_day_cutoff_time'] != null) {
+          final parts = policy['half_day_cutoff_time'].split(':');
+          _halfDayTime = TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+        }
+        if (policy['absent_cutoff_time'] != null) {
+          final parts = policy['absent_cutoff_time'].split(':');
+          _absentTime = TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+        }
+      });
+    } catch (e) {
+      debugPrint('Error loading policy: $e');
+    }
+
+    try {
+      await _loadDepartments();
+    } catch (e) {
+      debugPrint('Error loading departments: $e');
+    } finally {
+      setState(() {
+        _isLoadingSettings = false;
+      });
+    }
+  }
+
+  Future<void> _loadDepartments() async {
+    try {
+      final depts = await ApiService.fetchDepartments();
+      setState(() {
+        _dbDepartments = depts;
+        _departments.clear();
+        for (var d in depts) {
+          _departments.add(d['name'] as String);
+        }
+      });
+    } catch (e) {
+      debugPrint('Error fetching departments: $e');
+    }
+  }
+
+  String _timeOfDayToTimeString(TimeOfDay time) {
+    final hour = time.hour.toString().padLeft(2, '0');
+    final minute = time.minute.toString().padLeft(2, '0');
+    return '$hour:$minute:00';
+  }
+
+  String _cleanErrorMessage(Object e) {
+    if (e is ApiException) {
+      if (e.statusCode == 401) {
+        return 'Your session has expired. Please log in again.';
+      }
+      return e.message;
+    }
+    return e.toString();
+  }
+
+  Future<void> _saveGeneralSettings() async {
+    try {
+      await ApiService.updateSettings({
+        'faculty_registration_mode': _facultyRegistrationMode,
+        'allow_external_emails': _allowExternalEmails,
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('General settings saved successfully.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error saving general settings: ${_cleanErrorMessage(e)}'),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+    }
+  }
+
+  Future<void> _saveAttendancePolicy() async {
+    try {
+      await ApiService.updatePolicy({
+        'allowed_outside_minutes': int.tryParse(_allowedOutsideController.text) ?? 0,
+        'reminder_1_minutes': int.tryParse(_reminder1Controller.text) ?? 0,
+        'reminder_2_minutes': int.tryParse(_reminder2Controller.text) ?? 0,
+        'reminder_3_minutes': int.tryParse(_reminder3Controller.text) ?? 0,
+        'evaluation_minutes': int.tryParse(_evaluationController.text) ?? 15,
+        'half_day_cutoff_time': _timeOfDayToTimeString(_halfDayTime),
+        'absent_cutoff_time': _timeOfDayToTimeString(_absentTime),
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Attendance policy saved successfully.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error saving attendance policy: ${_cleanErrorMessage(e)}'),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+    }
+  }
+
+  Future<void> _saveWorkingHours() async {
+    try {
+      await ApiService.updatePolicy({
+        'start_time': _timeOfDayToTimeString(_workStartTime),
+        'end_time': _timeOfDayToTimeString(_workEndTime),
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Working hours saved successfully.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error saving working hours: ${_cleanErrorMessage(e)}'),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+    }
+  }
+
+  Future<void> _saveSecuritySettings() async {
+    try {
+      await ApiService.updateSettings({
+        'require_mfa': _requireMfa,
+        'restrict_devices': _restrictDevices,
+        'log_admin_actions': _logAdminActions,
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Security settings saved successfully.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error saving security settings: ${_cleanErrorMessage(e)}'),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+    }
+  }
+
+  Future<void> _saveNotificationsSettings() async {
+    try {
+      await ApiService.updateSettings({
+        'notify_on_device_change': _notifyOnDeviceChange,
+        'notify_on_exit_violation': _notifyOnExitViolation,
+        'notify_on_approvals': _notifyOnApprovals,
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Notification settings saved successfully.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error saving notification settings: ${_cleanErrorMessage(e)}'),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+    }
+  }
+
+  Future<void> _addDepartmentToDB(String name) async {
+    try {
+      await ApiService.createDepartment(name, '');
+      await _loadDepartments();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Department "$name" added successfully.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error adding department: ${_cleanErrorMessage(e)}'),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+    }
+  }
+
+  Future<void> _removeDepartmentFromDB(int index) async {
+    final deptName = _departments[index];
+    final deptObj = _dbDepartments.firstWhere((d) => d['name'] == deptName, orElse: () => {});
+    if (deptObj.isEmpty || deptObj['id'] == null) return;
+    
+    try {
+      await ApiService.deleteDepartment(deptObj['id'] as String);
+      await _loadDepartments();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Department "$deptName" removed successfully.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error removing department: ${_cleanErrorMessage(e)}'),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+    }
+  }
+
+  Future<void> _saveAllSettings() async {
+    setState(() {
+      _isLoadingSettings = true;
+    });
+    try {
+      await Future.wait([
+        _saveGeneralSettings(),
+        _saveAttendancePolicy(),
+        _saveWorkingHours(),
+        _saveSecuritySettings(),
+        _saveNotificationsSettings(),
+        _saveGeofence(),
+      ]);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('All system configurations saved successfully.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      debugPrint('Error saving all settings: $e');
+    } finally {
+      setState(() {
+        _isLoadingSettings = false;
+      });
+    }
+  }
+
+  Future<void> _searchLocation(String query) async {
+    if (query.trim().isEmpty) return;
+    setState(() {
+      _isSearching = true;
+      _showSuggestions = true;
+    });
+    try {
+      final results = await ApiService.searchLocation(query);
+      setState(() {
+        _searchResults = results;
+      });
+    } catch (e) {
+      debugPrint('Search failed: $e');
+    } finally {
+      setState(() {
+        _isSearching = false;
+      });
+    }
+  }
+
+  void _selectSearchResult(Map<String, dynamic> result) {
+    final double lat = double.parse(result['lat']);
+    final double lon = double.parse(result['lon']);
+    
+    setState(() {
+      _latitudeController.text = lat.toStringAsFixed(6);
+      _longitudeController.text = lon.toStringAsFixed(6);
+      _hasGeofence = true;
+      _testLatLng = null;
+      _testResult = null;
+      _showSuggestions = false;
+      _searchResults.clear();
+      _searchController.text = result['display_name'];
+      
+      try {
+        _mapController.move(LatLng(lat, lon), 15.0);
+      } catch (_) {}
+    });
+  }
+
+  Future<void> _addDepartment() async {
+    final text = _newDeptController.text.trim();
+    if (text.isNotEmpty) {
+      _newDeptController.clear();
+      await _addDepartmentToDB(text);
+    }
+  }
+
+  Future<void> _deleteDepartment(int index) async {
+    final dept = _departments[index];
+    if (dept == 'Computer Science' || dept == 'Electrical Engineering') {
+      AppDialog.show(
+        context: context,
+        title: 'Delete Department Failed',
+        content: 'Cannot delete "$dept" because active faculty profiles remain assigned to it.',
+        confirmText: 'Acknowledge',
+        onConfirm: () {},
+      );
+    } else {
+      await _removeDepartmentFromDB(index);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final width = MediaQuery.of(context).size.width;
+    final isDesktop = width >= 960;
+
+    return Scaffold(
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Branding Header
+          LayoutBuilder(
+            builder: (context, headerConstraints) {
+              final isWide = headerConstraints.maxWidth > 600;
+              final headerInfo = Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Premises Settings',
+                    style: AppTypography.h1.copyWith(
+                      color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Smart Attendance & Premises Monitoring Control Panel',
+                    style: AppTypography.caption,
+                  ),
+                ],
+              );
+              final saveBtn = AppButton(
+                text: 'Save All Changes',
+                onPressed: _saveAllSettings,
+              );
+
+              return isWide
+                  ? Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(child: headerInfo),
+                        const SizedBox(width: 16),
+                        saveBtn,
+                      ],
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        headerInfo,
+                        const SizedBox(height: 12),
+                        saveBtn,
+                      ],
+                    );
+            },
+          ),
+          const SizedBox(height: 24),
+          
+          Expanded(
+            child: isDesktop ? _buildDesktopLayout(theme) : _buildMobileLayout(theme),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 1. DESKTOP VIEWPORTS (Two-pane sidebar layout)
+  Widget _buildDesktopLayout(ThemeData theme) {
+    final isDark = theme.brightness == Brightness.dark;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Sidebar list
+        Container(
+          width: 240,
+          margin: const EdgeInsets.only(right: 24),
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
+            borderRadius: BorderRadius.circular(AppSizes.radiusLg),
+            border: Border.all(color: isDark ? AppColors.borderDark : AppColors.borderLight),
+          ),
+          child: ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _sections.length,
+            separatorBuilder: (context, index) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              final section = _sections[index];
+              final isSelected = _activeSection == section['name'];
+              return ListTile(
+                selected: isSelected,
+                leading: Icon(
+                  section['icon'],
+                  color: isSelected ? AppColors.primary : Colors.grey,
+                  size: 20,
+                ),
+                title: Text(
+                  section['name'],
+                  style: TextStyle(
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                    fontSize: 13,
+                    color: isSelected
+                        ? AppColors.primary
+                        : (isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight),
+                  ),
+                ),
+                trailing: isSelected
+                    ? const Icon(Icons.chevron_right, color: AppColors.primary, size: 16)
+                    : null,
+                onTap: () {
+                  setState(() {
+                    _activeSection = section['name'];
+                  });
+                },
+              );
+            },
+          ),
+        ),
+        
+        // Right Detail Pane
+        Expanded(
+          child: SingleChildScrollView(
+            child: Card(
+              color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
+              child: Padding(
+                padding: const EdgeInsets.all(28.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _activeSection,
+                      style: AppTypography.h2,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _getSectionDescription(_activeSection),
+                      style: AppTypography.caption,
+                    ),
+                    const Divider(height: 36),
+                    _buildActivePaneContent(theme),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // 2. MOBILE VIEWPORTS (Horizontal segmented tab selector)
+  Widget _buildMobileLayout(ThemeData theme) {
+    final isDark = theme.brightness == Brightness.dark;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Horizontal sliding categories
+        SizedBox(
+          height: 45,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: _sections.length,
+            itemBuilder: (context, index) {
+              final section = _sections[index];
+              final isSelected = _activeSection == section['name'];
+              return Padding(
+                padding: const EdgeInsets.only(right: 8.0),
+                child: ChoiceChip(
+                  label: Text(
+                    section['name'],
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    ),
+                  ),
+                  selected: isSelected,
+                  onSelected: (val) {
+                    if (val) {
+                      setState(() {
+                        _activeSection = section['name'];
+                      });
+                    }
+                  },
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 16),
+        
+        // Active Content
+        Expanded(
+          child: SingleChildScrollView(
+            child: Card(
+              color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _activeSection,
+                      style: AppTypography.h3,
+                    ),
+                    const Divider(height: 24),
+                    _buildActivePaneContent(theme),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _getSectionDescription(String sectionName) {
+    switch (sectionName) {
+      case 'General':
+        return 'Configure organization registration mode policies and email filters.';
+      case 'Attendance Policy':
+        return 'Configure operational attendance rule evaluations and push notifications.';
+      case 'Working Hours':
+        return 'Set mandatory daily operational timeframe boundaries for monitoring.';
+      case 'Campus Geofence':
+        return 'Map organizational physical site limits using visual coordinate pins.';
+      case 'Departments':
+        return 'Manage and review active internal academic/corporate rosters.';
+      case 'Security':
+        return 'Enforce multi-factor verification logins and active hardware locks.';
+      case 'Notifications':
+        return 'Configure exits, threshold delays, and notification targets.';
+      case 'Account':
+        return 'Manage your administrator account session and view profile details.';
+      case 'Developer Tools':
+        return 'Debug-only tools for testing geofence and attendance workflows.';
+      default:
+        return '';
+    }
+  }
+
+  // Renders the specific widget according to active sidebar tab
+  Widget _buildActivePaneContent(ThemeData theme) {
+    if (_isLoadingSettings) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: 40.0),
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+    switch (_activeSection) {
+      case 'General':
+        return _buildGeneralPane(theme);
+      case 'Attendance Policy':
+        return _buildAttendancePolicyPane(theme);
+      case 'Working Hours':
+        return _buildWorkingHoursPane(theme);
+      case 'Campus Geofence':
+        return _buildGeofencePane(theme);
+      case 'Departments':
+        return _buildDepartmentsPane(theme);
+      case 'Security':
+        return _buildSecurityPane(theme);
+      case 'Notifications':
+        return _buildNotificationsPane(theme);
+      case 'Account':
+        return _buildAccountPane(theme);
+      case 'Developer Tools':
+        return _buildDeveloperToolsPane(theme);
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  // =========================================================================
+  // SUB-PANES IMPLEMENTATIONS
+  // =========================================================================
+
+  Widget _buildGeneralPane(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SwitchListTile(
+          value: _facultyRegistrationMode == 'AUTO_APPROVE',
+          onChanged: (val) {
+            setState(() {
+              _facultyRegistrationMode = val ? 'AUTO_APPROVE' : 'ADMIN_APPROVAL';
+            });
+          },
+          title: const Text('Auto-Approve Faculty Registrations', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+          subtitle: const Text('Bypass admin verification queues for domain email accounts.', style: TextStyle(fontSize: 11)),
+        ),
+        const Divider(height: 24),
+        SwitchListTile(
+          value: _allowExternalEmails,
+          onChanged: (val) {
+            setState(() {
+              _allowExternalEmails = val;
+            });
+          },
+          title: const Text('Allow Guest Domain Logins', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+          subtitle: const Text('Permit accounts outside the official organization whitelist.', style: TextStyle(fontSize: 11)),
+        ),
+        const SizedBox(height: 24),
+        AppButton(
+          text: 'Save General Settings',
+          onPressed: _saveGeneralSettings,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAttendancePolicyPane(ThemeData theme) {
+    final isDark = theme.brightness == Brightness.dark;
+
+    // Helper to build a clean card container
+    Widget cardContainer({required String title, required Widget child}) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 20),
+        decoration: BoxDecoration(
+          color: isDark ? AppColors.backgroundDark : Colors.grey.shade50,
+          borderRadius: BorderRadius.circular(AppSizes.radiusLg),
+          border: Border.all(color: isDark ? AppColors.borderDark : AppColors.borderLight),
+        ),
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: AppTypography.h3.copyWith(fontSize: 14),
+            ),
+            const Divider(height: 24),
+            child,
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        cardContainer(
+          title: 'Attendance Rules',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              AppInput(
+                label: 'Allowed Outside Duration Buffer',
+                hint: 'Minutes',
+                controller: _allowedOutsideController,
+                keyboardType: TextInputType.number,
+                prefixIcon: Icons.timer_outlined,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Allowed outside duration timeframe limit before policy checks initiate (e.g., 25 minutes).',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+        cardContainer(
+          title: 'Reminder Rules',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              AppInput(
+                label: 'First Out-of-Geofence Warning Delay',
+                hint: 'Minutes',
+                controller: _reminder1Controller,
+                keyboardType: TextInputType.number,
+                prefixIcon: Icons.notifications_none,
+              ),
+              const SizedBox(height: 16),
+              AppInput(
+                label: 'Second Warning Reminder Delay',
+                hint: 'Minutes',
+                controller: _reminder2Controller,
+                keyboardType: TextInputType.number,
+                prefixIcon: Icons.notifications_outlined,
+              ),
+              const SizedBox(height: 16),
+              AppInput(
+                label: 'Final Persistent Warning Push Alert',
+                hint: 'Minutes',
+                controller: _reminder3Controller,
+                keyboardType: TextInputType.number,
+                prefixIcon: Icons.notifications_active_outlined,
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Timeline details for sending alert notifications to out-of-bounds faculty (e.g., 25m, 28m, and 31m).',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+        cardContainer(
+          title: 'Attendance Evaluation Settings',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              AppInput(
+                label: 'Attendance Policy Evaluation Trigger',
+                hint: 'Minutes',
+                controller: _evaluationController,
+                keyboardType: TextInputType.number,
+                prefixIcon: Icons.refresh_outlined,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Time limit before active status evaluation commits (e.g., 35 minutes). If faculty remains out-of-bounds at this point without submitting a reason request, policies are applied.',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+        cardContainer(
+          title: 'Status Cutoff Thresholds',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final isWide = constraints.maxWidth > 500;
+                  final halfDayTile = ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Half-Day Cutoff', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    subtitle: Text(_halfDayTime.format(context), style: const TextStyle(fontSize: 12)),
+                    trailing: const Icon(Icons.access_time, size: 18),
+                    onTap: () async {
+                      final picked = await showTimePicker(context: context, initialTime: _halfDayTime);
+                      if (picked != null) setState(() => _halfDayTime = picked);
+                    },
+                  );
+                  final absentTile = ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Absent Threshold', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    subtitle: Text(_absentTime.format(context), style: const TextStyle(fontSize: 12)),
+                    trailing: const Icon(Icons.access_time, size: 18),
+                    onTap: () async {
+                      final picked = await showTimePicker(context: context, initialTime: _absentTime);
+                      if (picked != null) setState(() => _absentTime = picked);
+                    },
+                  );
+
+                  return isWide
+                      ? Row(
+                          children: [
+                            Expanded(child: halfDayTile),
+                            const SizedBox(width: 24),
+                            Expanded(child: absentTile),
+                          ],
+                        )
+                      : Column(
+                          children: [
+                            halfDayTile,
+                            const Divider(height: 1),
+                            absentTile,
+                          ],
+                        );
+                },
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Daily evaluation thresholds (e.g., 2:30 PM). Violations occurring before this time mark the faculty member Absent; violations occurring after this time mark them Half-Day.',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        AppButton(
+          text: 'Save Attendance Policy',
+          onPressed: _saveAttendancePolicy,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildWorkingHoursPane(ThemeData theme) {
+    final isDark = theme.brightness == Brightness.dark;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Info Alert banner
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.primary.withOpacity(0.06),
+            borderRadius: BorderRadius.circular(AppSizes.radiusMd),
+            border: Border.all(color: theme.colorScheme.primary.withOpacity(0.2)),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.info_outline, color: theme.colorScheme.primary, size: 20),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'Working Hours are mandatory parameters. Location event monitoring and reminder checks operate strictly during this configured daily timeframe.',
+                  style: TextStyle(fontSize: 12, height: 1.4),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final isWide = constraints.maxWidth > 500;
+            final startCard = Card(
+              color: isDark ? AppColors.backgroundDark : Colors.grey.shade50,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppSizes.radiusLg),
+                side: BorderSide(color: isDark ? AppColors.borderDark : AppColors.borderLight),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Shift Start Time',
+                      style: TextStyle(color: Colors.grey, fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _workStartTime.format(context),
+                      style: AppTypography.h1.copyWith(fontSize: 24, fontWeight: FontWeight.w900),
+                    ),
+                    const SizedBox(height: 16),
+                    AppButton(
+                      text: 'Choose Start',
+                      variant: ButtonVariant.outline,
+                      onPressed: () async {
+                        final picked = await showTimePicker(context: context, initialTime: _workStartTime);
+                        if (picked != null) {
+                          setState(() => _workStartTime = picked);
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            );
+            final endCard = Card(
+              color: isDark ? AppColors.backgroundDark : Colors.grey.shade50,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppSizes.radiusLg),
+                side: BorderSide(color: isDark ? AppColors.borderDark : AppColors.borderLight),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Shift End Time',
+                      style: TextStyle(color: Colors.grey, fontSize: 11, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _workEndTime.format(context),
+                      style: AppTypography.h1.copyWith(fontSize: 24, fontWeight: FontWeight.w900),
+                    ),
+                    const SizedBox(height: 16),
+                    AppButton(
+                      text: 'Choose End',
+                      variant: ButtonVariant.outline,
+                      onPressed: () async {
+                        final picked = await showTimePicker(context: context, initialTime: _workEndTime);
+                        if (picked != null) {
+                          setState(() => _workEndTime = picked);
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            );
+
+            return isWide
+                ? Row(
+                    children: [
+                      Expanded(child: startCard),
+                      const SizedBox(width: 16),
+                      Expanded(child: endCard),
+                    ],
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      startCard,
+                      const SizedBox(height: 16),
+                      endCard,
+                    ],
+                  );
+          },
+        ),
+        const SizedBox(height: 24),
+        AppButton(
+          text: 'Save Working Hours',
+          onPressed: _saveWorkingHours,
+        ),
+      ],
+    );
+  }
+
+  void _locateManualCoordinates() {
+    if (_coordsFormKey.currentState?.validate() ?? false) {
+      final double lat = double.parse(_manualLatController.text.trim());
+      final double lng = double.parse(_manualLngController.text.trim());
+      
+      setState(() {
+        _latitudeController.text = lat.toStringAsFixed(6);
+        _longitudeController.text = lng.toStringAsFixed(6);
+        _testLatLng = null;
+        _testResult = null;
+        _hasGeofence = true;
+      });
+
+      // Fly map to coordinates
+      try {
+        _mapController.move(LatLng(lat, lng), 15.0);
+      } catch (_) {}
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Coordinates located successfully.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    }
+  }
+
+  Widget _buildInstructionsCard(ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primary.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(AppSizes.radiusMd),
+        border: Border.all(color: theme.colorScheme.primary.withOpacity(0.15)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.help_outline, color: theme.colorScheme.primary, size: 16),
+              const SizedBox(width: 8),
+              Text(
+                'How to get coordinates',
+                style: AppTypography.bodyMedium.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '1. Open Google Maps.\n'
+            '2. Search your college or institution.\n'
+            '3. Right-click (desktop) or long-press (mobile) on the exact campus entrance.\n'
+            '4. Copy the displayed Latitude and Longitude.\n'
+            '5. Paste them into the fields below.\n'
+            '6. Click Locate Coordinates.',
+            style: AppTypography.caption.copyWith(height: 1.4),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Campus Geofence Canvas + Coordinates Configurator
+  Widget _buildGeofencePane(ThemeData theme) {
+    final isDark = theme.brightness == Brightness.dark;
+    final lat = double.tryParse(_latitudeController.text) ?? 18.403817;
+    final lng = double.tryParse(_longitudeController.text) ?? 76.560943;
+    final centerLatLng = LatLng(lat, lng);
+    final width = MediaQuery.of(context).size.width;
+    final isDesktop = width >= 960;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (_savedLatitude != null && _savedLongitude != null)
+          Container(
+            margin: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: isDark ? AppColors.surfaceDark : const Color(0xFFE8F5E9),
+              borderRadius: BorderRadius.circular(AppSizes.radiusLg),
+              border: Border.all(color: isDark ? AppColors.borderDark : const Color(0xFFA5D6A7)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFC8E6C9),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.verified_user, color: Colors.green, size: 24),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Active Campus Geofence (Saved in Database)',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? Colors.white : const Color(0xFF1B5E20),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Latitude: ${_savedLatitude!.toStringAsFixed(6)}   |   Longitude: ${_savedLongitude!.toStringAsFixed(6)}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: isDark ? Colors.grey.shade400 : Colors.grey.shade700,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Radius: ${_savedRadiusMeters?.round()}m   |   Area: ${(math.pi * math.pow(_savedRadiusMeters ?? 0, 2) / 10000).toStringAsFixed(2)} ha (~${_formatNumber((math.pi * math.pow(_savedRadiusMeters ?? 0, 2)).round())} m²)',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: isDark ? Colors.grey.shade500 : Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.center_focus_strong, color: AppColors.primary),
+                  tooltip: 'Center map on saved coordinates',
+                  onPressed: () {
+                    try {
+                      _mapController.move(LatLng(_savedLatitude!, _savedLongitude!), 15.0);
+                      setState(() {
+                        _latitudeController.text = _savedLatitude!.toStringAsFixed(6);
+                        _longitudeController.text = _savedLongitude!.toStringAsFixed(6);
+                        _radiusMeters = _savedRadiusMeters ?? 500.0;
+                      });
+                    } catch (_) {}
+                  },
+                ),
+              ],
+            ),
+          ),
+        if (!_hasGeofence)
+          Container(
+            margin: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.warning.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(AppSizes.radiusLg),
+              border: Border.all(color: AppColors.warning.withOpacity(0.3)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.info_outline, color: AppColors.warning, size: 20),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    "No campus location has been configured yet. Search, drag the marker, or paste Google Maps coordinates to begin.",
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.warning,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+        Card(
+          color: isDark ? AppColors.surfaceDark : Colors.white,
+          margin: const EdgeInsets.only(bottom: 16),
+          child: ExpansionTile(
+            title: Text(
+              'Use Google Maps Coordinates (Recommended for Better Accuracy)',
+              style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.bold),
+            ),
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Form(
+                  key: _coordsFormKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _buildInstructionsCard(theme),
+                      const SizedBox(height: 16),
+                      isDesktop
+                          ? Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: AppInput(
+                                    label: 'Latitude',
+                                    hint: 'e.g., 18.403817',
+                                    controller: _manualLatController,
+                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                    prefixIcon: Icons.location_on_outlined,
+                                    validator: (value) {
+                                      if (value == null || value.trim().isEmpty) {
+                                        return 'Required';
+                                      }
+                                      final parsed = double.tryParse(value);
+                                      if (parsed == null) {
+                                        return 'Invalid number';
+                                      }
+                                      if (parsed < -90.0 || parsed > 90.0) {
+                                        return '-90 to 90';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: AppInput(
+                                    label: 'Longitude',
+                                    hint: 'e.g., 76.560943',
+                                    controller: _manualLngController,
+                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                    prefixIcon: Icons.location_on_outlined,
+                                    validator: (value) {
+                                      if (value == null || value.trim().isEmpty) {
+                                        return 'Required';
+                                      }
+                                      final parsed = double.tryParse(value);
+                                      if (parsed == null) {
+                                        return 'Invalid number';
+                                      }
+                                      if (parsed < -180.0 || parsed > 180.0) {
+                                        return '-180 to 180';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 4.0),
+                                  child: AppButton(
+                                    text: 'Locate Coordinates',
+                                    onPressed: _locateManualCoordinates,
+                                  ),
+                                ),
+                              ],
+                            )
+                          : Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Expanded(
+                                      child: AppInput(
+                                        label: 'Latitude',
+                                        hint: 'e.g., 18.403817',
+                                        controller: _manualLatController,
+                                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                        prefixIcon: Icons.location_on_outlined,
+                                        validator: (value) {
+                                          if (value == null || value.trim().isEmpty) {
+                                            return 'Required';
+                                          }
+                                          final parsed = double.tryParse(value);
+                                          if (parsed == null) {
+                                            return 'Invalid number';
+                                          }
+                                          if (parsed < -90.0 || parsed > 90.0) {
+                                            return '-90 to 90';
+                                          }
+                                          return null;
+                                        },
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: AppInput(
+                                        label: 'Longitude',
+                                        hint: 'e.g., 76.560943',
+                                        controller: _manualLngController,
+                                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                        prefixIcon: Icons.location_on_outlined,
+                                        validator: (value) {
+                                          if (value == null || value.trim().isEmpty) {
+                                            return 'Required';
+                                          }
+                                          final parsed = double.tryParse(value);
+                                          if (parsed == null) {
+                                            return 'Invalid number';
+                                          }
+                                          if (parsed < -180.0 || parsed > 180.0) {
+                                            return '-180 to 180';
+                                          }
+                                          return null;
+                                        },
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 16),
+                                AppButton(
+                                  text: 'Locate Coordinates',
+                                  onPressed: _locateManualCoordinates,
+                                ),
+                              ],
+                            ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        Container(
+          height: 380,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppSizes.radiusLg),
+            border: Border.all(color: isDark ? AppColors.borderDark : AppColors.borderLight),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(AppSizes.radiusLg - 1),
+            child: Stack(
+              children: [
+                FlutterMap(
+                  mapController: _mapController,
+                  options: MapOptions(
+                    initialCenter: centerLatLng,
+                    initialZoom: 15.0,
+                    onTap: (tapPosition, point) {
+                      if (_isTestMode) {
+                        final dist = _calculateDistance(
+                          centerLatLng.latitude,
+                          centerLatLng.longitude,
+                          point.latitude,
+                          point.longitude,
+                        );
+                        final inside = dist <= _radiusMeters;
+                        setState(() {
+                          _testLatLng = point;
+                          _testResult = inside
+                              ? 'SUCCESS: Test point (${point.latitude.toStringAsFixed(6)}, ${point.longitude.toStringAsFixed(6)}) lies INSIDE the campus boundaries. Distance: ${dist.toStringAsFixed(1)}m.'
+                              : 'VIOLATION: Test point (${point.latitude.toStringAsFixed(6)}, ${point.longitude.toStringAsFixed(6)}) lies OUTSIDE the active geofence. Distance: ${dist.toStringAsFixed(1)}m.';
+                        });
+                      } else {
+                        setState(() {
+                          _latitudeController.text = point.latitude.toStringAsFixed(6);
+                          _longitudeController.text = point.longitude.toStringAsFixed(6);
+                          _hasGeofence = true;
+                          _testLatLng = null;
+                          _testResult = null;
+                        });
+                      }
+                    },
+                  ),
+                  children: [
+                    TileLayer(
+                      urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      userAgentPackageName: 'com.premises.app',
+                    ),
+                    CircleLayer(
+                      circles: [
+                        CircleMarker(
+                          point: centerLatLng,
+                          radius: _radiusMeters,
+                          useRadiusInMeter: true,
+                          color: AppColors.primary.withOpacity(0.12),
+                          borderColor: AppColors.primary,
+                          borderStrokeWidth: 2,
+                        ),
+                      ],
+                    ),
+                    MarkerLayer(
+                      markers: [
+                        Marker(
+                          point: centerLatLng,
+                          width: 40,
+                          height: 40,
+                          child: const Icon(
+                            Icons.location_on,
+                            color: AppColors.danger,
+                            size: 40,
+                          ),
+                        ),
+                        if (_isTestMode && _testLatLng != null)
+                          Marker(
+                            point: _testLatLng!,
+                            width: 40,
+                            height: 40,
+                            child: const Icon(
+                              Icons.location_on,
+                              color: Colors.orange,
+                              size: 40,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+
+                // Interactive Search Bar Overlay
+                Positioned(
+                  top: 16,
+                  left: 16,
+                  right: 16,
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Container(
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: isDark ? AppColors.surfaceDark : Colors.white,
+                                borderRadius: BorderRadius.circular(AppSizes.radiusMd),
+                                border: Border.all(color: isDark ? AppColors.borderDark : AppColors.borderLight),
+                                boxShadow: [
+                                  BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 8, offset: const Offset(0, 3)),
+                                ],
+                              ),
+                              child: TextField(
+                                controller: _searchController,
+                                style: const TextStyle(fontSize: 13),
+                                decoration: InputDecoration(
+                                  hintText: 'Search campus, address, or landmark...',
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                  border: InputBorder.none,
+                                  enabledBorder: InputBorder.none,
+                                  focusedBorder: InputBorder.none,
+                                  prefixIcon: const Icon(Icons.search, size: 18, color: Colors.grey),
+                                  suffixIcon: _isSearching
+                                      ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: Padding(
+                                            padding: EdgeInsets.all(12.0),
+                                            child: CircularProgressIndicator(strokeWidth: 2),
+                                          ),
+                                        )
+                                      : _searchController.text.isNotEmpty
+                                          ? IconButton(
+                                              icon: const Icon(Icons.clear, size: 16),
+                                              onPressed: () {
+                                                _searchController.clear();
+                                                setState(() {
+                                                  _showSuggestions = false;
+                                                  _searchResults.clear();
+                                                });
+                                              },
+                                            )
+                                          : null,
+                                ),
+                                onChanged: (text) {
+                                  if (text.length > 2) {
+                                    _searchLocation(text);
+                                  } else {
+                                    setState(() {
+                                      _showSuggestions = false;
+                                      _searchResults.clear();
+                                    });
+                                  }
+                                },
+                                onSubmitted: (query) {
+                                  _searchLocation(query);
+                                },
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            height: 44,
+                            width: 44,
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.primary,
+                              borderRadius: BorderRadius.circular(AppSizes.radiusMd),
+                            ),
+                            child: IconButton(
+                              icon: const Icon(Icons.my_location, color: Colors.white, size: 18),
+                              onPressed: () {
+                                setState(() {
+                                  _latitudeController.text = '18.403817';
+                                  _longitudeController.text = '76.560943';
+                                  _hasGeofence = true;
+                                  _testLatLng = null;
+                                  _testResult = null;
+                                  try {
+                                    _mapController.move(const LatLng(18.403817, 76.560943), 15.0);
+                                  } catch (_) {}
+                                });
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (_showSuggestions && _searchResults.isNotEmpty)
+                        Container(
+                          margin: const EdgeInsets.only(top: 4),
+                          constraints: const BoxConstraints(maxHeight: 200),
+                          decoration: BoxDecoration(
+                            color: isDark ? AppColors.surfaceDark : Colors.white,
+                            borderRadius: BorderRadius.circular(AppSizes.radiusMd),
+                            border: Border.all(color: isDark ? AppColors.borderDark : AppColors.borderLight),
+                            boxShadow: [
+                              BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10),
+                            ],
+                          ),
+                          child: ListView.separated(
+                            padding: EdgeInsets.zero,
+                            shrinkWrap: true,
+                            itemCount: _searchResults.length,
+                            separatorBuilder: (context, index) => const Divider(height: 1),
+                            itemBuilder: (context, index) {
+                              final result = _searchResults[index];
+                              return ListTile(
+                                dense: true,
+                                leading: const Icon(Icons.location_on_outlined, size: 16),
+                                title: Text(
+                                  result['display_name'],
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                                onTap: () => _selectSearchResult(result),
+                              );
+                            },
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+
+                // Zoom controls overlay
+                Positioned(
+                  bottom: 16,
+                  right: 16,
+                  child: Column(
+                    children: [
+                      _buildMapControlButton(Icons.add, () {
+                        try {
+                          _mapController.move(_mapController.camera.center, _mapController.camera.zoom + 1);
+                        } catch (_) {}
+                      }),
+                      const SizedBox(height: 4),
+                      _buildMapControlButton(Icons.remove, () {
+                        try {
+                          _mapController.move(_mapController.camera.center, _mapController.camera.zoom - 1);
+                        } catch (_) {}
+                      }),
+                    ],
+                  ),
+                ),
+
+                // Manual Draggable Control Helpers
+                Positioned(
+                  bottom: 16,
+                  left: 16,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: isDark ? AppColors.surfaceDark : Colors.white,
+                      borderRadius: BorderRadius.circular(AppSizes.radiusMd),
+                      boxShadow: [
+                        BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 4),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.drag_indicator, size: 14, color: Colors.grey),
+                        const SizedBox(width: 4),
+                        Text('Nudge Pin: ', style: AppTypography.caption.copyWith(fontSize: 10, fontWeight: FontWeight.bold)),
+                        IconButton(
+                          icon: const Icon(Icons.arrow_left, size: 18),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          onPressed: () {
+                            final double lng = double.tryParse(_longitudeController.text) ?? 76.560943;
+                            setState(() {
+                              _longitudeController.text = (lng - 0.0001).toStringAsFixed(6);
+                              _hasGeofence = true;
+                            });
+                          },
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.arrow_drop_up, size: 18),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          onPressed: () {
+                            final double lat = double.tryParse(_latitudeController.text) ?? 18.403817;
+                            setState(() {
+                              _latitudeController.text = (lat + 0.0001).toStringAsFixed(6);
+                              _hasGeofence = true;
+                            });
+                          },
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.arrow_drop_down, size: 18),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          onPressed: () {
+                            final double lat = double.tryParse(_latitudeController.text) ?? 18.403817;
+                            setState(() {
+                              _latitudeController.text = (lat - 0.0001).toStringAsFixed(6);
+                              _hasGeofence = true;
+                            });
+                          },
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.arrow_right, size: 18),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          onPressed: () {
+                            final double lng = double.tryParse(_longitudeController.text) ?? 76.560943;
+                            setState(() {
+                              _longitudeController.text = (lng + 0.0001).toStringAsFixed(6);
+                              _hasGeofence = true;
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                if (_isLoadingGeofence)
+                  Container(
+                    color: Colors.black.withOpacity(0.1),
+                    child: const Center(child: CircularProgressIndicator()),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+
+        // Radius Slider Panel
+        Container(
+          padding: const EdgeInsets.all(20.0),
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.surfaceDark : Colors.grey.shade50,
+            borderRadius: BorderRadius.circular(AppSizes.radiusLg),
+            border: Border.all(color: isDark ? AppColors.borderDark : AppColors.borderLight),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Radius Configuration', style: AppTypography.bodyLarge.copyWith(fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 2),
+                      Text('Adjust the geofence boundary slider to resize', style: AppTypography.caption),
+                    ],
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primary.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(AppSizes.radiusMd),
+                    ),
+                    child: Text(
+                      '${_radiusMeters.round()}m',
+                      style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Text('100m', style: AppTypography.caption.copyWith(fontWeight: FontWeight.bold)),
+                  Expanded(
+                    child: Slider(
+                      value: _radiusMeters,
+                      min: 100,
+                      max: 2000,
+                      divisions: 38,
+                      label: '${_radiusMeters.round()}m',
+                      onChanged: (val) {
+                        setState(() {
+                          _radiusMeters = val;
+                          _testLatLng = null;
+                          _testResult = null;
+                        });
+                      },
+                    ),
+                  ),
+                  Text('2000m', style: AppTypography.caption.copyWith(fontWeight: FontWeight.bold)),
+                ],
+              ),
+              const SizedBox(height: 12),
+              _buildLiveStatsCard(theme, lat, lng),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+
+        // Boundary Coverage Simulator
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.surfaceDark : Colors.white,
+            borderRadius: BorderRadius.circular(AppSizes.radiusLg),
+            border: Border.all(color: isDark ? AppColors.borderDark : AppColors.borderLight),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Boundary Coverage Simulator', style: AppTypography.bodyLarge.copyWith(fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 2),
+                      Text('Simulate boundary verification by tapping on the map', style: AppTypography.caption),
+                    ],
+                  ),
+                  Switch(
+                    value: _isTestMode,
+                    onChanged: (val) {
+                      setState(() {
+                        _isTestMode = val;
+                        _testLatLng = null;
+                        _testResult = null;
+                      });
+                    },
+                  ),
+                ],
+              ),
+              if (_isTestMode) ...[
+                const Divider(height: 24),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: isDark ? AppColors.backgroundDark : Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(AppSizes.radiusMd),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.touch_app_outlined, size: 18, color: Colors.grey),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          _testResult ?? 'Tap anywhere on the interactive map above to simulate verification.',
+                          style: TextStyle(
+                            fontSize: 11,
+                            height: 1.4,
+                            fontWeight: _testResult != null ? FontWeight.bold : FontWeight.normal,
+                            color: _testResult == null
+                                ? Colors.grey
+                                : (_testResult!.startsWith('SUCCESS') ? AppColors.success : AppColors.danger),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            if (_isSavingGeofence)
+              const CircularProgressIndicator()
+            else
+              AppButton(
+                text: 'Save Geofence Settings',
+                onPressed: _saveGeofence,
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLiveStatsCard(ThemeData theme, double lat, double lng) {
+    final isDark = theme.brightness == Brightness.dark;
+    final double areaSqM = math.pi * math.pow(_radiusMeters, 2);
+    final double areaHectares = areaSqM / 10000;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? AppColors.backgroundDark : Colors.white,
+        borderRadius: BorderRadius.circular(AppSizes.radiusMd),
+        border: Border.all(color: isDark ? AppColors.borderDark : AppColors.borderLight),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Live Boundary Specifications', style: AppTypography.caption.copyWith(fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildStatItem(
+                  icon: Icons.gps_fixed,
+                  label: 'Coordinates',
+                  value: '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}',
+                ),
+              ),
+              Expanded(
+                child: _buildStatItem(
+                  icon: Icons.aspect_ratio_outlined,
+                  label: 'Estimated Area',
+                  value: '${areaHectares.toStringAsFixed(2)} ha (~${_formatNumber(areaSqM.round())} m²)',
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildStatItem(
+                  icon: Icons.radar_outlined,
+                  label: 'Perimeter Boundary',
+                  value: 'Circular (Radius: ${_radiusMeters.round()}m)',
+                ),
+              ),
+              Expanded(
+                child: _buildStatItem(
+                  icon: Icons.lock_clock_outlined,
+                  label: 'Lock Status',
+                  value: 'Automatic Generation',
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatItem({required IconData icon, required String label, required String value}) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 16, color: AppColors.primary.withOpacity(0.8)),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.w500)),
+              const SizedBox(height: 2),
+              Text(value, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _formatNumber(int number) {
+    final RegExp reg = RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))');
+    return number.toString().replaceAllMapped(reg, (Match match) => '${match[1]},');
+  }
+
+  Widget _buildMapControlButton(IconData icon, VoidCallback onPressed) {
+    return Container(
+      height: 32,
+      width: 32,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(4),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 4),
+        ],
+      ),
+      child: IconButton(
+        icon: Icon(icon, color: Colors.black, size: 16),
+        padding: EdgeInsets.zero,
+        onPressed: onPressed,
+      ),
+    );
+  }
+
+  Widget _buildDepartmentsPane(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final isWide = constraints.maxWidth > 500;
+            final deptInput = AppInput(
+              label: 'Department Title',
+              hint: 'e.g., Physics, Chemistry',
+              controller: _newDeptController,
+            );
+            final addBtn = AppButton(
+              text: 'Add Dept',
+              onPressed: _addDepartment,
+            );
+
+            return isWide
+                ? Row(
+                    children: [
+                      Expanded(child: deptInput),
+                      const SizedBox(width: 12),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 20.0), // Align with float input
+                        child: addBtn,
+                      ),
+                    ],
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      deptInput,
+                      const SizedBox(height: 12),
+                      addBtn,
+                    ],
+                  );
+          },
+        ),
+        const SizedBox(height: 24),
+        ListView.separated(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: _departments.length,
+          separatorBuilder: (context, index) => const Divider(height: 1),
+          itemBuilder: (context, index) {
+            return ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(
+                _departments[index],
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+              ),
+              trailing: IconButton(
+                icon: const Icon(Icons.delete_outline, color: AppColors.danger, size: 20),
+                onPressed: () => _deleteDepartment(index),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSecurityPane(ThemeData theme) {
+    return Column(
+      children: [
+        SwitchListTile(
+          value: _requireMfa,
+          onChanged: (val) => setState(() => _requireMfa = val),
+          title: const Text('Require Multi-Factor Authentication (MFA)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+          subtitle: const Text('Forces all organizational admins to authenticate using MFA apps.', style: TextStyle(fontSize: 11)),
+        ),
+        const Divider(height: 24),
+        SwitchListTile(
+          value: _restrictDevices,
+          onChanged: (val) => setState(() => _restrictDevices = val),
+          title: const Text('Hardware Device Lock Binding', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+          subtitle: const Text('Permits attendance reporting strictly from configured hardware identifiers.', style: TextStyle(fontSize: 11)),
+        ),
+        const Divider(height: 24),
+        SwitchListTile(
+          value: _logAdminActions,
+          onChanged: (val) => setState(() => _logAdminActions = val),
+          title: const Text('Enforce Full Audit Logging', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+          subtitle: const Text('Maintains history track logs for all configuration mutations.', style: TextStyle(fontSize: 11)),
+        ),
+        const SizedBox(height: 24),
+        AppButton(
+          text: 'Save Security Settings',
+          onPressed: _saveSecuritySettings,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNotificationsPane(ThemeData theme) {
+    return Column(
+      children: [
+        SwitchListTile(
+          value: _notifyOnDeviceChange,
+          onChanged: (val) => setState(() => _notifyOnDeviceChange = val),
+          title: const Text('Device Change Requests Alerts', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+          subtitle: const Text('Warns admins immediately when swap requests are queued.', style: TextStyle(fontSize: 11)),
+        ),
+        const Divider(height: 24),
+        SwitchListTile(
+          value: _notifyOnExitViolation,
+          onChanged: (val) => setState(() => _notifyOnExitViolation = val),
+          title: const Text('Geofence Violation Alerts', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+          subtitle: const Text('Sends alerts on dashboard for faculty who exit campus geofences.', style: TextStyle(fontSize: 11)),
+        ),
+        const Divider(height: 24),
+        SwitchListTile(
+          value: _notifyOnApprovals,
+          onChanged: (val) => setState(() => _notifyOnApprovals = val),
+          title: const Text('Roster Approval Email Triggers', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+          subtitle: const Text('Notify faculty members when registrations are approved.', style: TextStyle(fontSize: 11)),
+        ),
+        const SizedBox(height: 24),
+        AppButton(
+          text: 'Save Notification Settings',
+          onPressed: _saveNotificationsSettings,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAccountPane(ThemeData theme) {
+    final name = SessionManager.fullName ?? 'Administrator';
+    final email = SessionManager.email ?? '';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Profile Information',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+        ),
+        const SizedBox(height: 16),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: CircleAvatar(
+            radius: 24,
+            backgroundColor: theme.colorScheme.primary.withOpacity(0.1),
+            child: Text(
+              name.isNotEmpty ? name[0].toUpperCase() : 'A',
+              style: TextStyle(fontWeight: FontWeight.bold, color: theme.colorScheme.primary, fontSize: 18),
+            ),
+          ),
+          title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+          subtitle: Text(email, style: const TextStyle(fontSize: 13)),
+        ),
+        const Divider(height: 32),
+        const Text(
+          'Session Management',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Log out of your administrative session on this device. You will need to sign in again to access the control panel.',
+          style: TextStyle(fontSize: 11, color: Colors.grey),
+        ),
+        const SizedBox(height: 24),
+        SizedBox(
+          width: double.infinity,
+          child: AppButton(
+            text: 'Sign Out / Log Out',
+            variant: ButtonVariant.outline,
+            leadingIcon: Icons.logout,
+            onPressed: () async {
+              final confirm = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('Log Out'),
+                  content: const Text('Are you sure you want to log out from this device?'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(ctx).pop(false),
+                      child: const Text('Cancel'),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.of(ctx).pop(true),
+                      child: const Text('Log Out', style: TextStyle(color: Colors.red)),
+                    ),
+                  ],
+                ),
+              );
+              if (confirm == true) {
+                await SessionManager.clear();
+                if (context.mounted) {
+                  context.go('/login');
+                }
+              }
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDeveloperToolsPane(ThemeData theme) {
+    final isDark = theme.brightness == Brightness.dark;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Warning banner
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.deepPurple.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.deepPurple.withOpacity(0.35)),
+          ),
+          child: const Row(
+            children: [
+              Icon(Icons.bug_report_outlined, color: Colors.deepPurple, size: 18),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Developer Tools are only visible in DEBUG builds and will not appear in production. These tools bypass real location and directly trigger backend attendance events.',
+                  style: TextStyle(fontSize: 12, color: Colors.deepPurple, height: 1.4),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+
+        // Attendance Simulator
+        Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.backgroundDark : Colors.grey.shade50,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isDark ? AppColors.borderDark : AppColors.borderLight,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(7),
+                    decoration: BoxDecoration(
+                      color: AppColors.success.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.science_outlined, color: AppColors.success, size: 18),
+                  ),
+                  const SizedBox(width: 12),
+                  const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Attendance Simulator',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
+                      Text(
+                        'Simulate geofence check-in / check-out for any faculty',
+                        style: TextStyle(fontSize: 11, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Use this tool to test the full attendance pipeline without physically entering the geofence. It fires real API events, creates attendance records, and sends notifications to the faculty member.',
+                style: TextStyle(fontSize: 12, color: Colors.grey, height: 1.5),
+              ),
+              const SizedBox(height: 16),
+              AppButton(
+                text: 'Open Attendance Simulator',
+                leadingIcon: Icons.open_in_new,
+                onPressed: () => context.go('/admin/simulator'),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+
