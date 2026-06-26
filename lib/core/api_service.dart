@@ -605,6 +605,29 @@ class ApiService {
     final response = await post('/attendance/check-in', body);
     return response['data'] as Map<String, dynamic>;
   }
+
+  // =========================================================================
+  // FORGOT PASSWORD FLOW
+  // =========================================================================
+
+  /// POST /auth/forgot-password
+  static Future<void> initiateForgotPassword(String email) async {
+    await post('/auth/forgot-password', {'email': email});
+  }
+
+  /// POST /auth/verify-reset-otp
+  static Future<void> verifyResetOtp(String email, String otp) async {
+    await post('/auth/verify-reset-otp', {'email': email, 'otp': otp});
+  }
+
+  /// POST /auth/reset-password
+  static Future<void> resetPassword(String email, String otp, String newPassword) async {
+    await post('/auth/reset-password', {
+      'email': email,
+      'otp': otp,
+      'new_password': newPassword,
+    });
+  }
 }
 
 

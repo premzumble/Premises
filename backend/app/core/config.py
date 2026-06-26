@@ -17,7 +17,8 @@ if not env_path.exists():
     )
 
 # Load environment variables from .env
-load_dotenv(dotenv_path=env_path)
+# Load environment variables from .env
+load_dotenv(dotenv_path=env_path, override=True)
 
 # Enforce required environment variables immediately
 missing_vars = []
@@ -42,6 +43,15 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     GOOGLE_MAPS_API_KEY: str = ""
+
+    # SMTP Configuration
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM_EMAIL: str = ""
+    SMTP_FROM_NAME: str = "Premises Team"
+    SMTP_TLS: bool = True
 
     # Dev Mode: when True, all localhost origins are allowed dynamically
     DEV_MODE: bool = True

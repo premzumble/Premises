@@ -7,6 +7,7 @@ import '../../../core/design_system/app_typography.dart';
 import '../../../core/session_manager.dart';
 import '../../../core/widgets/button.dart';
 import '../../../core/widgets/input.dart';
+import 'forgot_password/forgot_password_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -288,11 +289,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           padding: const EdgeInsets.symmetric(vertical: 8.0),
                           child: GestureDetector(
                             onTap: () {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                    content: Text(
-                                        'Password reset feature coming soon.')),
-                              );
+                              context.push('/forgot-password');
                             },
                             child: Text(
                               'Forgot Password?',

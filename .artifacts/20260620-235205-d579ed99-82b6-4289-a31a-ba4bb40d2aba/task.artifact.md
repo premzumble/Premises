@@ -1,0 +1,28 @@
+# Task Management - Forgot Password & Email OTP
+
+- [ ] Backend - Infrastructure & Config
+    - [ ] Update `config.py` with SMTP settings
+    - [ ] Install `Jinja2` and `aiosmtplib` (if needed, or use standard `smtplib`)
+    - [ ] Create `EmailService` with Jinja2 templates
+- [ ] Backend - Database & Models
+    - [ ] Update `OtpVerification` model in `otp.py`
+    - [ ] Create Alembic migration
+    - [ ] Apply migration to PostgreSQL
+- [ ] Backend - Business Logic
+    - [ ] Implement rate limiting and strong password validation
+    - [ ] Implement `initiate_password_reset`, `verify_reset_otp`, `reset_password` in `AuthService`
+    - [ ] Update registration OTP to use `EmailService`
+- [ ] Backend - API
+    - [ ] Add forgot password endpoints to `auth.py`
+    - [ ] Create `health.py` with email connectivity check
+- [ ] Flutter - Frontend
+    - [ ] Add API methods to `api_service.dart`
+    - [ ] Create `ForgotPasswordScreen`
+    - [ ] Create `VerifyResetOtpScreen`
+    - [ ] Create `ResetPasswordScreen`
+    - [ ] Create `ResetSuccessScreen`
+    - [ ] Link "Forgot Password?" from `LoginScreen`
+- [ ] Verification
+    - [ ] Run backend SMTP health check
+    - [ ] Perform manual end-to-end forgot password test
+    - [ ] Verify rate limiting and password security

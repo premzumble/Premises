@@ -4,6 +4,10 @@ import 'package:go_router/go_router.dart';
 import '../core/session_manager.dart';
 import '../features/auth/screens/login_screen.dart';
 import '../features/auth/screens/register_screen.dart';
+import '../features/auth/screens/forgot_password/forgot_password_screen.dart';
+import '../features/auth/screens/forgot_password/verify_reset_otp_screen.dart';
+import '../features/auth/screens/forgot_password/reset_password_screen.dart';
+import '../features/auth/screens/forgot_password/reset_success_screen.dart';
 import '../features/faculty/layouts/faculty_navigation.dart';
 import '../features/faculty/screens/faculty_dashboard_screen.dart';
 import '../features/faculty/screens/faculty_history_screen.dart';
@@ -32,7 +36,7 @@ class AppRouter {
     final isFaculty = SessionManager.isFaculty;
 
     // Public routes — allow unauthenticated access
-    final publicRoutes = ['/login', '/register'];
+    final publicRoutes = ['/login', '/register', '/forgot-password'];
     final isPublic = publicRoutes.any((r) => path.startsWith(r));
 
     // Not logged in: always redirect to login
@@ -72,6 +76,37 @@ class AppRouter {
       GoRoute(
         path: '/register',
         builder: (context, state) => const RegisterScreen(),
+      ),
+
+      // ----------------------------------------------------------------
+      // Forgot Password Flow (Public)
+      // ----------------------------------------------------------------
+      GoRoute(
+        path: '/forgot-password',
+        builder: (context, state) => const ForgotPasswordScreen(),
+        routes: [
+          GoRoute(
+            path: 'verify',
+            builder: (context, state) {
+              final email = state.extra as String? ?? '';
+              return VerifyResetOtpScreen(email: email);
+            },
+          ),
+          GoRoute(
+            path: 'reset',
+            builder: (context, state) {
+              final data = state.extra as Map<String, dynamic>? ?? {};
+              return ResetPasswordScreen(
+                email: data['email'] ?? '',
+                otp: data['otp'] ?? '',
+              );
+            },
+          ),
+          GoRoute(
+            path: 'success',
+            builder: (context, state) => const ResetSuccessScreen(),
+          ),
+        ],
       ),
 
       // ----------------------------------------------------------------

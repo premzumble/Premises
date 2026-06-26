@@ -9,7 +9,7 @@ from app.core.config import settings
 from app.core.exceptions import BaseAppException
 from app.core.limiter import limiter
 from app.database.database import init_db
-from app.api import auth, admin, faculty, attendance, geofence, settings as api_settings
+from app.api import auth, admin, faculty, attendance, geofence, health, settings as api_settings
 
 # Configure logging
 logging.basicConfig(
@@ -168,6 +168,7 @@ app.include_router(faculty.router,      prefix=f"{settings.API_V1_STR}/faculty",
 app.include_router(attendance.router,   prefix=f"{settings.API_V1_STR}/attendance", tags=["Attendance Lifecycle"])
 app.include_router(geofence.router,     prefix=f"{settings.API_V1_STR}/geofence",   tags=["Geofencing Configuration"])
 app.include_router(api_settings.router, prefix=f"{settings.API_V1_STR}/settings",   tags=["Settings & Policies"])
+app.include_router(health.router,       prefix=f"{settings.API_V1_STR}/health",     tags=["Health & Monitoring"])
 
 
 @app.get("/", tags=["Health"])

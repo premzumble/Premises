@@ -18,6 +18,8 @@ from app.schemas.auth import (
     UserInfo,
     VerifyOtpRequest,
     VerifyOtpResponse,
+    ForgotPasswordRequest,
+    ResetPasswordRequest,
 )
 from app.schemas.base import StandardResponse
 from app.services.auth_service import AuthService
@@ -213,6 +215,44 @@ async def logout(
     return StandardResponse(
         success=True,
         message="Logout successful.",
+        data={},
+    )
+
+
+# ----------------------------------------------------------------------
+# FORGOT PASSWORD FLOW
+# ----------------------------------------------------------------------
+
+@router.post("/forgot-password", response_model=StandardResponse[dict])
+@limiter.limit("3/10minutes")
+async def forgot_password(request: Request, data: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
+    auth_service = AuthService(db)
+    result = await auth_service.initiate_password_reset(data)
+    return StandardResponse(
+        success=True,
+        message=result["message"],
+        data={},
+    )
+
+
+@router.post("/verify-reset-otp", response_model=StandardResponse[dict])
+async def verify_reset_otp(data: VerifyOtpRequest, db: AsyncSession = Depends(get_db)):
+    auth_service = AuthService(db)
+    result = await auth_service.verify_reset_otp(data.email, data.otp)
+    return StandardResponse(
+        success=True,
+        message=result["message"],
+        data={},
+    )
+
+
+@router.post("/reset-password", response_model=StandardResponse[dict])
+async def reset_password(data: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
+    auth_service = AuthService(db)
+    result = await auth_service.reset_password(data)
+    return StandardResponse(
+        success=True,
+        message=result["message"],
         data={},
     )
 
