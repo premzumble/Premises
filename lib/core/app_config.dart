@@ -10,17 +10,17 @@
 ///   Set [backendHost] to '127.0.0.1'  or  'localhost'
 ///
 /// ---------------------------------------------------------------------------
+/// ---------------------------------------------------------------------------
+/// App Configuration
+/// ---------------------------------------------------------------------------
+
 library app_config;
 
-/// The IP/hostname of the backend server.
-/// Change this to your PC's local IP when testing on a physical device.
-const String backendHost = '192.168.68.152';
+/// Base API URL
+const String kApiBaseUrl = String.fromEnvironment(
+  'API_BASE_URL',
+  defaultValue: 'http://192.168.68.152:8000/api/v1',
+);
 
-/// The port the backend FastAPI server listens on.
-const int backendPort = 8000;
-
-/// Full base URL — used by all services.
-const String kBaseUrl = 'http://$backendHost:$backendPort';
-
-/// Full base API URL — used by ApiService.
-const String kApiBaseUrl = '$kBaseUrl/api/v1';
+/// Backend URL (without /api/v1)
+String get kBaseUrl => kApiBaseUrl.replaceFirst('/api/v1', '');

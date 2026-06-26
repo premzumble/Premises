@@ -1,0 +1,23 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: premises_backend
+    ports:
+      - "8019:8019"
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./backend/.env:/app/.env:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; import sys; try: urllib.request.urlopen('http://localhost:8019/health'); sys.exit(0); except: sys.exit(1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+# Volumes and Networks can be added here if needed, 
+# for example to persist logs or if database was in docker too.
+# Based on instructions, we only need to build backend.

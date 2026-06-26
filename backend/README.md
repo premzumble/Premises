@@ -87,3 +87,7 @@ To keep database queries, business rules, and HTTP endpoints strictly isolated:
 2. **Service Layer** (`app/services/`): Implements business validations (e.g. Haversine geofence boundary checks, device locks, time cutoff statuses) and calls Repositories.
 3. **Repository Layer** (`app/repositories/`): Conducts raw database queries using SQLAlchemy 2.0 select and insert statements.
 4. **Declarative Models** (`app/models/`): Houses DB schemas and structural relationship declarations.
+
+To configure URL Yourself Use Following Command
+
+flutter run --dart-define=API_BASE_URL=http://192.168.2.237:8000/api/v1
