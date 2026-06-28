@@ -18,7 +18,7 @@ from app.database.database import Base  # noqa: F401 — re-export Base
 # ---------------------------------------------------------------------------
 from app.models.organization import Organization, OrganizationSettings, Department  # noqa: F401
 from app.models.user import Admin, Faculty                                          # noqa: F401
-from app.models.geofence import Geofence, AttendancePolicy                          # noqa: F401
+from app.models.geofence import Geofence, AttendancePolicy, GeofenceVertex                  # noqa: F401
 from app.models.attendance import AttendanceRecord, LocationEvent                   # noqa: F401
 from app.models.request import (                                                    # noqa: F401
     Device, ReasonRequest, FacultyRegistrationRequest, DeviceChangeRequest

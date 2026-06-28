@@ -5,21 +5,43 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database.database import Base
 
 
+from typing import Optional, List
+
 class Geofence(Base):
     __tablename__ = "geofences"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
-    latitude: Mapped[float] = mapped_column(Double, nullable=False)
-    longitude: Mapped[float] = mapped_column(Double, nullable=False)
-    radius_meters: Mapped[float] = mapped_column(Double, nullable=False)
+    geofence_type: Mapped[str] = mapped_column(String(50), nullable=False, default="circle")
+    latitude: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    longitude: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
+    radius_meters: Mapped[Optional[float]] = mapped_column(Double, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
     updated_by: Mapped[str] = mapped_column(String(255), nullable=True)
 
     organization = relationship("Organization")
+    vertices = relationship(
+        "GeofenceVertex",
+        back_populates="geofence",
+        order_by="GeofenceVertex.sequence_order",
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
+
+
+class GeofenceVertex(Base):
+    __tablename__ = "geofence_vertices"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    geofence_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("geofences.id", ondelete="CASCADE"), nullable=False)
+    sequence_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    latitude: Mapped[float] = mapped_column(Double, nullable=False)
+    longitude: Mapped[float] = mapped_column(Double, nullable=False)
+
+    geofence = relationship("Geofence", back_populates="vertices")
 
 
 class AttendancePolicy(Base):

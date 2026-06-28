@@ -99,9 +99,24 @@ class FacultyService:
         gf_res = await self.db.execute(gf_stmt)
         geofence = gf_res.scalars().first()
 
-        geofence_lat = geofence.latitude if geofence else 0.0
-        geofence_lng = geofence.longitude if geofence else 0.0
-        geofence_rad = geofence.radius_meters if geofence else 0.0
+        geofence_lat = 0.0
+        geofence_lng = 0.0
+        geofence_rad = 0.0
+        geofence_type = "circle"
+        geofence_vertices = None
+
+        if geofence:
+            geofence_type = geofence.geofence_type
+            if geofence_type == "circle":
+                geofence_lat = geofence.latitude if geofence.latitude is not None else 0.0
+                geofence_lng = geofence.longitude if geofence.longitude is not None else 0.0
+                geofence_rad = geofence.radius_meters if geofence.radius_meters is not None else 0.0
+            elif geofence_type == "polygon":
+                geofence_vertices = geofence.vertices
+                if geofence_vertices:
+                    geofence_lat = sum(v.latitude for v in geofence_vertices) / len(geofence_vertices)
+                    geofence_lng = sum(v.longitude for v in geofence_vertices) / len(geofence_vertices)
+                    geofence_rad = 0.0
 
         # Policy details
         pol_stmt = select(AttendancePolicy).where(AttendancePolicy.organization_id == faculty.organization_id)
@@ -232,6 +247,8 @@ class FacultyService:
             geofence_latitude=geofence_lat,
             geofence_longitude=geofence_lng,
             geofence_radius=geofence_rad,
+            geofence_type=geofence_type,
+            geofence_vertices=geofence_vertices,
             allowed_outside_minutes=allowed_outside,
             reminder_1_minutes=policy.reminder_1_minutes if policy else 0,
             reminder_2_minutes=policy.reminder_2_minutes if policy else 0,

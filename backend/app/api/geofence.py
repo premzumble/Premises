@@ -87,6 +87,20 @@ async def search_location(
         )
 
 
+@router.get("/config", response_model=StandardResponse[dict])
+async def get_geofence_config(
+    current_user: Any = Depends(get_current_user),
+):
+    from app.core.config import settings
+    return StandardResponse(
+        success=True,
+        message="Geofence configuration loaded.",
+        data={
+            "google_maps_api_key": settings.GOOGLE_MAPS_API_KEY
+        }
+    )
+
+
 @router.get("/", response_model=StandardResponse[List[GeofenceResponse]])
 async def list_geofences(
     db: AsyncSession = Depends(get_db),
@@ -117,10 +131,26 @@ async def create_geofence(
         db.add(old_gf)
 
     gf_data = data.model_dump()
+    vertices_data = gf_data.pop("vertices", None) or []
+    
     gf_data["organization_id"] = current_user.organization_id
     gf_data["updated_by"] = current_user.email
     
-    gf = await repo.create(obj_in_data=gf_data)
+    from app.models.geofence import GeofenceVertex
+    
+    gf = Geofence(**gf_data)
+    db.add(gf)
+    await db.flush() # Flush to generate gf.id
+    
+    for idx, v in enumerate(vertices_data):
+        vertex = GeofenceVertex(
+            geofence_id=gf.id,
+            sequence_order=idx,
+            latitude=v["latitude"],
+            longitude=v["longitude"]
+        )
+        db.add(vertex)
+        
     await db.commit()
     await db.refresh(gf)
     

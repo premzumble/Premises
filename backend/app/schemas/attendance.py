@@ -52,4 +52,8 @@ class AttendanceSummary(BaseModel):
     pending_requests_count: int
     total_faculty: int
     org_name: str
+    org_code: str
+    admin_email: str
+    org_created_at: datetime
+    org_status: str
     recent_activities: List[RecentActivityItem] = []

@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import '../api_service.dart';
@@ -152,22 +154,15 @@ class LocationService {
 
   static Future<void> _handlePositionUpdate(Position position) async {
     final double? gfLat = SessionManager.geofenceLatitude;
-    final double? gfLng = SessionManager.geofenceLongitude;
-    final double? gfRad = SessionManager.geofenceRadius;
 
-    if (gfLat == null || gfLng == null || gfRad == null) {
+    if (gfLat == null) {
       debugPrint('[LocationService] Geofence configuration not found in SessionManager.');
       return;
     }
 
-    final double distance = Geolocator.distanceBetween(
-      position.latitude,
-      position.longitude,
-      gfLat,
-      gfLng,
-    );
-
-    final bool currentlyInside = distance <= gfRad;
+    final eval = evaluateGeofence(position.latitude, position.longitude);
+    final bool currentlyInside = eval.isInside;
+    final double distance = eval.distance;
     isInsideGeofence = currentlyInside;
 
     debugPrint('[LocationService] Update -> Lat: ${position.latitude.toStringAsFixed(6)}, Lng: ${position.longitude.toStringAsFixed(6)}, Distance: ${distance.toStringAsFixed(1)}m, Inside: $currentlyInside');
@@ -352,22 +347,15 @@ class LocationService {
       );
 
       final double? gfLat = SessionManager.geofenceLatitude;
-      final double? gfLng = SessionManager.geofenceLongitude;
-      final double? gfRad = SessionManager.geofenceRadius;
 
-      if (gfLat == null || gfLng == null || gfRad == null) {
+      if (gfLat == null) {
         throw Exception('Geofence configuration is missing.');
       }
 
-      final double distance = Geolocator.distanceBetween(
-        position.latitude,
-        position.longitude,
-        gfLat,
-        gfLng,
-      );
+      final eval = evaluateGeofence(position.latitude, position.longitude);
 
-      if (distance > gfRad) {
-        throw Exception('You must be inside the campus boundaries to register attendance. Current distance: ${distance.toStringAsFixed(1)}m');
+      if (!eval.isInside) {
+        throw Exception('You must be inside the campus boundaries to register attendance. Current distance: ${eval.distance.toStringAsFixed(1)}m');
       }
 
       isCheckingIn = true;
@@ -444,12 +432,15 @@ class LocationService {
       final lat = data['geofence_latitude'] as double? ?? 0.0;
       final lng = data['geofence_longitude'] as double? ?? 0.0;
       final rad = data['geofence_radius'] as double? ?? 0.0;
+      final type = data['geofence_type'] as String? ?? 'circle';
+      final vertices = data['geofence_vertices'];
+      final String? verticesJson = vertices != null ? json.encode(vertices) : null;
       final allowedOutside = data['allowed_outside_minutes'] as int? ?? 25;
       final rem1 = data['reminder_1_minutes'] as int? ?? 0;
       final rem2 = data['reminder_2_minutes'] as int? ?? 0;
       final rem3 = data['reminder_3_minutes'] as int? ?? 0;
       final eval = data['evaluation_minutes'] as int? ?? 15;
-      SessionManager.cacheGeofence(lat, lng, rad, allowedOutside, rem1, rem2, rem3, eval);
+      SessionManager.cacheGeofence(lat, lng, rad, type, verticesJson, allowedOutside, rem1, rem2, rem3, eval);
 
       // Check for completion notification
       _checkCompletionNotification(data);
@@ -457,5 +448,124 @@ class LocationService {
       debugPrint('[LocationService] Failed to sync with server: $e');
     }
   }
+
+  // ─── Geofence Evaluation Core ──────────────────────────────────────────────
+
+  static GeofenceEvaluation evaluateGeofence(double lat, double lng) {
+    final double? gfLat = SessionManager.geofenceLatitude;
+    final double? gfLng = SessionManager.geofenceLongitude;
+    final double? gfRad = SessionManager.geofenceRadius;
+    final String type = SessionManager.geofenceType ?? 'circle';
+    final String? verticesJson = SessionManager.geofenceVerticesJson;
+
+    if (gfLat == null || gfLng == null || gfRad == null) {
+      return GeofenceEvaluation(false, double.infinity);
+    }
+
+    if (type == 'polygon' && verticesJson != null) {
+      try {
+        final List<dynamic> decoded = json.decode(verticesJson);
+        final List<Map<String, double>> vertices = decoded.map((item) {
+          final Map<String, dynamic> m = item as Map<String, dynamic>;
+          return {
+            'lat': (m['latitude'] as num).toDouble(),
+            'lng': (m['longitude'] as num).toDouble(),
+          };
+        }).toList();
+
+        if (vertices.length >= 3) {
+          final bool isInside = _checkPointInPolygon(lat, lng, vertices);
+          final double distance = isInside ? 0.0 : _distanceToPolygonMeters(lat, lng, vertices);
+          return GeofenceEvaluation(isInside, distance);
+        }
+      } catch (e) {
+        debugPrint('[LocationService] Error evaluating polygon geofence: $e');
+      }
+    }
+
+    // Default to circle distance check
+    final double distance = Geolocator.distanceBetween(lat, lng, gfLat, gfLng);
+    return GeofenceEvaluation(distance <= gfRad, distance);
+  }
+
+  static bool _checkPointInPolygon(double lat, double lng, List<Map<String, double>> vertices) {
+    int numVertices = vertices.length;
+    bool inside = false;
+    if (numVertices < 3) return false;
+    
+    double p1x = vertices[0]['lat']!;
+    double p1y = vertices[0]['lng']!;
+    
+    for (int i = 1; i <= numVertices; i++) {
+      double p2x = vertices[i % numVertices]['lat']!;
+      double p2y = vertices[i % numVertices]['lng']!;
+      
+      if (lng > math.min(p1y, p2y)) {
+        if (lng <= math.max(p1y, p2y)) {
+          if (lat <= math.max(p1x, p2x)) {
+            double xinters = 0.0;
+            if (p1y != p2y) {
+              xinters = (lng - p1y) * (p2x - p1x) / (p2y - p1y) + p1x;
+            }
+            if (p1x == p2x || lat <= xinters) {
+              inside = !inside;
+            }
+          }
+        }
+      }
+      p1x = p2x;
+      p1y = p2y;
+    }
+    return inside;
+  }
+
+  static double _distanceToSegmentMeters(double latP, double lngP, double latA, double lngA, double latB, double lngB) {
+    const double R = 6371000.0;
+    final double latCenterRad = latP * math.pi / 180.0;
+    final double cosLat = math.cos(latCenterRad);
+    
+    final double ax = (lngA - lngP) * math.pi / 180.0 * R * cosLat;
+    final double ay = (latA - latP) * math.pi / 180.0 * R;
+    final double bx = (lngB - lngP) * math.pi / 180.0 * R * cosLat;
+    final double by = (latB - latP) * math.pi / 180.0 * R;
+    
+    final double dx = bx - ax;
+    final double dy = by - ay;
+    final double lenSq = dx * dx + dy * dy;
+    
+    if (lenSq == 0.0) {
+      return math.sqrt(ax * ax + ay * ay);
+    }
+    
+    double t = ((0.0 - ax) * dx + (0.0 - ay) * dy) / lenSq;
+    t = math.max(0.0, math.min(1.0, t));
+    
+    final double cx = ax + t * dx;
+    final double cy = ay + t * dy;
+    return math.sqrt(cx * cx + cy * cy);
+  }
+
+  static double _distanceToPolygonMeters(double latP, double lngP, List<Map<String, double>> vertices) {
+    int n = vertices.length;
+    if (n == 0) return double.infinity;
+    double minD = double.infinity;
+    for (int i = 0; i < n; i++) {
+      final double latA = vertices[i]['lat']!;
+      final double lngA = vertices[i]['lng']!;
+      final double latB = vertices[(i + 1) % n]['lat']!;
+      final double lngB = vertices[(i + 1) % n]['lng']!;
+      final double d = _distanceToSegmentMeters(latP, lngP, latA, lngA, latB, lngB);
+      if (d < minD) {
+        minD = d;
+      }
+    }
+    return minD;
+  }
+}
+
+class GeofenceEvaluation {
+  final bool isInside;
+  final double distance;
+  GeofenceEvaluation(this.isInside, this.distance);
 }
 

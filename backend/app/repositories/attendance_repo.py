@@ -29,11 +29,21 @@ class AttendanceRepository(BaseRepository[AttendanceRecord]):
     async def get_dashboard_summary(self, organization_id: uuid.UUID, target_date: date) -> dict:
         from app.models.organization import Organization
         from app.models.request import FacultyRegistrationRequest, DeviceChangeRequest, ReasonRequest
+        from app.models.user import Admin
 
-        # 1. Fetch organization name
-        org_stmt = select(Organization.name).where(Organization.id == organization_id)
+        # 1. Fetch organization details
+        org_stmt = select(Organization).where(Organization.id == organization_id)
         org_res = await self.db.execute(org_stmt)
-        org_name = org_res.scalar() or "Organization"
+        organization = org_res.scalars().first()
+        org_name = organization.name if organization else "Organization"
+        org_code = organization.organization_code if organization else ""
+        org_created_at = organization.created_at if organization else datetime.now(timezone.utc)
+        org_status = organization.status if organization else "ACTIVE"
+
+        # 1b. Fetch admin email
+        admin_stmt = select(Admin.email).where(Admin.organization_id == organization_id).limit(1)
+        admin_res = await self.db.execute(admin_stmt)
+        admin_email = admin_res.scalar() or ""
 
         # 2. Total active faculty count
         faculty_stmt = select(Faculty.id).where(
@@ -171,5 +181,9 @@ class AttendanceRepository(BaseRepository[AttendanceRecord]):
             "pending_requests_count": pending_requests_count,
             "total_faculty": total_faculty,
             "org_name": org_name,
+            "org_code": org_code,
+            "admin_email": admin_email,
+            "org_created_at": org_created_at,
+            "org_status": org_status,
             "recent_activities": recent_activities
         }

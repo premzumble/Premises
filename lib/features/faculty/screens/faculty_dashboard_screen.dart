@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/api_service.dart';
@@ -85,15 +86,18 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
         });
         
         // Cache geofence configuration globally
-        final lat = data['geofence_latitude'] as double? ?? 0.0;
-        final lng = data['geofence_longitude'] as double? ?? 0.0;
-        final rad = data['geofence_radius'] as double? ?? 0.0;
-        final allowedOutside = data['allowed_outside_minutes'] as int? ?? 25;
-        final rem1 = data['reminder_1_minutes'] as int? ?? 0;
-        final rem2 = data['reminder_2_minutes'] as int? ?? 0;
-        final rem3 = data['reminder_3_minutes'] as int? ?? 0;
-        final eval = data['evaluation_minutes'] as int? ?? 15;
-        SessionManager.cacheGeofence(lat, lng, rad, allowedOutside, rem1, rem2, rem3, eval);
+        final double lat = data['geofence_latitude'] != null ? (data['geofence_latitude'] as num).toDouble() : 0.0;
+        final double lng = data['geofence_longitude'] != null ? (data['geofence_longitude'] as num).toDouble() : 0.0;
+        final double rad = data['geofence_radius'] != null ? (data['geofence_radius'] as num).toDouble() : 0.0;
+        final String type = data['geofence_type'] as String? ?? 'circle';
+        final vertices = data['geofence_vertices'];
+        final String? verticesJson = vertices != null ? json.encode(vertices) : null;
+        final int allowedOutside = data['allowed_outside_minutes'] as int? ?? 25;
+        final int rem1 = data['reminder_1_minutes'] as int? ?? 0;
+        final int rem2 = data['reminder_2_minutes'] as int? ?? 0;
+        final int rem3 = data['reminder_3_minutes'] as int? ?? 0;
+        final int eval = data['evaluation_minutes'] as int? ?? 15;
+        SessionManager.cacheGeofence(lat, lng, rad, type, verticesJson, allowedOutside, rem1, rem2, rem3, eval);
         LocationService.checkCurrentLocation();
 
         // Update location service check-in/out reference

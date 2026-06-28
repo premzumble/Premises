@@ -14,7 +14,13 @@ import '../../../core/widgets/input.dart';
 import '../../../core/session_manager.dart';
 import '../../../core/api_service.dart';
 import '../../../core/app_config.dart';
+import '../../../core/services/location_service.dart';
 import 'package:go_router/go_router.dart';
+import 'package:showcaseview/showcaseview.dart';
+import '../../admin/walkthrough/controller/walkthrough_controller.dart';
+import '../../admin/walkthrough/walkthrough_steps_definition.dart';
+import '../../admin/walkthrough/widgets/walkthrough_tooltip.dart';
+import '../widgets/google_map_editor.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -68,6 +74,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   double _radiusMeters = 500.0;
   final _searchController = TextEditingController();
 
+  String _googleMapsApiKey = '';
+  String _geofenceType = 'circle';
+  List<dynamic>? _geofenceVertices;
+
   final MapController _mapController = MapController();
   LatLng? _testLatLng;
   bool _isTestMode = false;
@@ -78,6 +88,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isSavingGeofence = false;
   bool _isLoadingGeofence = false;
   final String _baseUrl = kBaseUrl;
+  bool _geofenceIsDirty = false;
+
+  Future<void> _switchSection(String sectionName) async {
+    if (_activeSection == 'Campus Geofence' && _geofenceIsDirty) {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Unsaved Geofence Changes'),
+          content: const Text(
+            'You have unsaved changes in your campus geofence boundary configuration. '
+            'Are you sure you want to discard them and switch sections?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Discard', style: TextStyle(color: AppColors.danger)),
+            ),
+          ],
+        ),
+      );
+      if (confirm != true) return;
+      _geofenceIsDirty = false;
+    }
+    setState(() {
+      _activeSection = sectionName;
+    });
+  }
 
   // Departments State
   final List<String> _departments = ['Computer Science', 'Electrical Engineering', 'Mechanical', 'Administration'];
@@ -100,6 +141,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _longitudeController.addListener(_onCoordsChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadAllSettings();
+      // Notify the walkthrough controller that Settings is now rendered.
+      // The controller starts Phase 2 only when awaiting this signal.
+      if (mounted) {
+        WalkthroughController.instance.onSettingsReady(context);
+      }
     });
   }
 
@@ -180,13 +226,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
         final resData = json.decode(response.body);
         if (resData['success'] == true && resData['data'] is List && (resData['data'] as List).isNotEmpty) {
           final geofence = resData['data'][0];
-          final double lat = (geofence['latitude'] as num).toDouble();
-          final double lng = (geofence['longitude'] as num).toDouble();
-          final double rad = (geofence['radius_meters'] as num).toDouble();
+          final String type = geofence['geofence_type'] as String? ?? 'circle';
+          final double lat = geofence['latitude'] != null ? (geofence['latitude'] as num).toDouble() : 18.403817;
+          final double lng = geofence['longitude'] != null ? (geofence['longitude'] as num).toDouble() : 76.560943;
+          final double rad = geofence['radius_meters'] != null ? (geofence['radius_meters'] as num).toDouble() : 500.0;
+          final List<dynamic>? vertices = geofence['vertices'];
+
           setState(() {
-            _savedLatitude = lat;
-            _savedLongitude = lng;
-            _savedRadiusMeters = rad;
+            _savedLatitude = geofence['latitude'] != null ? lat : null;
+            _savedLongitude = geofence['longitude'] != null ? lng : null;
+            _savedRadiusMeters = geofence['radius_meters'] != null ? rad : null;
+            _geofenceType = type;
+            _geofenceVertices = vertices;
             _latitudeController.text = lat.toStringAsFixed(6);
             _longitudeController.text = lng.toStringAsFixed(6);
             _manualLatController.text = lat.toStringAsFixed(6);
@@ -202,8 +253,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _savedLatitude = null;
             _savedLongitude = null;
             _savedRadiusMeters = null;
+            _geofenceType = 'circle';
+            _geofenceVertices = null;
             _hasGeofence = false;
-            // Use fallback center but do not save until admin submits
             _latitudeController.text = '18.403817';
             _longitudeController.text = '76.560943';
             _manualLatController.text = '18.403817';
@@ -225,18 +277,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _saveGeofence() async {
-    final double? lat = double.tryParse(_latitudeController.text);
-    final double? lng = double.tryParse(_longitudeController.text);
-    if (lat == null || lng == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Invalid coordinates. Please enter valid numbers.'),
-          backgroundColor: AppColors.danger,
-        ),
-      );
-      return;
+    final Map<String, dynamic> payload = {
+      'geofence_type': _geofenceType,
+      'name': 'Campus Boundary',
+      'is_active': true
+    };
+    if (_geofenceType == 'circle') {
+      payload['latitude'] = _savedLatitude ?? 18.403817;
+      payload['longitude'] = _savedLongitude ?? 76.560943;
+      payload['radius_meters'] = _savedRadiusMeters ?? 500.0;
+      payload['vertices'] = null;
+    } else {
+      payload['latitude'] = null;
+      payload['longitude'] = null;
+      payload['radius_meters'] = null;
+      payload['vertices'] = _geofenceVertices;
     }
+    await _saveCustomGeofence(payload);
+  }
 
+  Future<void> _saveCustomGeofence(Map<String, dynamic> payload) async {
     setState(() {
       _isSavingGeofence = true;
     });
@@ -245,8 +305,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (token == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Failed to authenticate with backend. Configuration saved locally.'),
-          backgroundColor: AppColors.warning,
+          content: Text('Failed to authenticate with backend.'),
+          backgroundColor: AppColors.danger,
         ),
       );
       setState(() {
@@ -262,29 +322,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
         },
-        body: json.encode({
-          'name': 'Campus Boundary',
-          'latitude': lat,
-          'longitude': lng,
-          'radius_meters': _radiusMeters,
-          'is_active': true,
-        }),
+        body: json.encode(payload),
       );
       if (response.statusCode == 200) {
         final resData = json.decode(response.body);
         if (resData['success'] == true) {
+          final savedGf = resData['data'];
           setState(() {
+            _geofenceType = savedGf['geofence_type'] ?? 'circle';
+            _savedLatitude = savedGf['latitude'] != null ? (savedGf['latitude'] as num).toDouble() : null;
+            _savedLongitude = savedGf['longitude'] != null ? (savedGf['longitude'] as num).toDouble() : null;
+            _savedRadiusMeters = savedGf['radius_meters'] != null ? (savedGf['radius_meters'] as num).toDouble() : null;
+            _geofenceVertices = savedGf['vertices'];
             _hasGeofence = true;
-            _savedLatitude = lat;
-            _savedLongitude = lng;
-            _savedRadiusMeters = _radiusMeters;
+            _geofenceIsDirty = false;
           });
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Campus geofence settings persisted to PostgreSQL backend.'),
+              content: Text('Campus geofence settings successfully saved to PostgreSQL.'),
               backgroundColor: AppColors.success,
             ),
           );
+          // Sync geofence status with local tracking service
+          await LocationService.syncWithServer();
           return;
         }
       }
@@ -297,8 +357,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error connecting to backend: ${_cleanErrorMessage(e)}. Saved locally.'),
-          backgroundColor: AppColors.warning,
+          content: Text('Error connecting to backend: ${_cleanErrorMessage(e)}'),
+          backgroundColor: AppColors.danger,
         ),
       );
     } finally {
@@ -311,10 +371,47 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isLoadingSettings = false;
   List<Map<String, dynamic>> _dbDepartments = [];
 
+  Future<void> _fetchGoogleMapsConfig() async {
+    final token = await _getAuthToken();
+    if (token == null) {
+      print('[SettingsScreen] Auth token is null! Cannot fetch maps config.');
+      return;
+    }
+    try {
+      final url = '$_baseUrl/api/v1/geofence/config';
+      print('[SettingsScreen] Fetching Maps Config from: $url');
+      final response = await http.get(
+        Uri.parse(url),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      print('[SettingsScreen] Response status: ${response.statusCode}');
+      print('[SettingsScreen] Response body: ${response.body}');
+      if (response.statusCode == 200) {
+        final resData = json.decode(response.body);
+        if (resData['success'] == true && resData['data'] != null) {
+          final key = resData['data']['google_maps_api_key'] as String? ?? '';
+          print('[SettingsScreen] Extracted API Key from response: "$key"');
+          setState(() {
+            _googleMapsApiKey = key;
+          });
+        } else {
+          print('[SettingsScreen] Success is false or data is null in response.');
+        }
+      }
+    } catch (e) {
+      print('[SettingsScreen] Exception in _fetchGoogleMapsConfig: $e');
+    }
+  }
+
   Future<void> _loadAllSettings() async {
     setState(() {
       _isLoadingSettings = true;
     });
+    try {
+      await _fetchGoogleMapsConfig();
+    } catch (e) {
+      debugPrint('Error loading maps config: $e');
+    }
     try {
       await _fetchGeofence();
     } catch (e) {
@@ -392,6 +489,116 @@ class _SettingsScreenState extends State<SettingsScreen> {
       debugPrint('Error fetching departments: $e');
     }
   }
+
+  // ─── Walkthrough Helpers ─────────────────────────────────────────────────
+
+  /// Returns the [GlobalKey] registered for this settings section's Showcase,
+  /// or [null] if the section is not part of the tour.
+  GlobalKey? _getSectionShowcaseKey(String sectionName) {
+    switch (sectionName) {
+      case 'General':
+        return WalkthroughKeys.settingsGeneral;
+      case 'Departments':
+        return WalkthroughKeys.settingsDepartments;
+      case 'Working Hours':
+        return WalkthroughKeys.settingsWorkingHours;
+      case 'Attendance Policy':
+        return WalkthroughKeys.settingsAttendancePolicy;
+      case 'Campus Geofence':
+        return WalkthroughKeys.settingsGeofence;
+      case 'Security':
+        return WalkthroughKeys.settingsSecurity;
+      case 'Notifications':
+        return WalkthroughKeys.settingsNotifications;
+      case 'Account':
+        return WalkthroughKeys.settingsAccount;
+      default:
+        return null;
+    }
+  }
+
+  /// Builds the [WalkthroughTooltip] for a given settings section.
+  Widget? _buildSectionTooltip(String sectionName) {
+    switch (sectionName) {
+      case 'General':
+        return const WalkthroughTooltip(
+          stepNumber: 3,
+          title: 'General Configuration',
+          body:
+              'Set your faculty registration mode (Admin Approval vs. Open Enrollment) and configure allowed email domains for your organization.',
+          icon: Icons.tune,
+          isFirstInPhase: true,
+        );
+      case 'Departments':
+        return const WalkthroughTooltip(
+          stepNumber: 4,
+          title: 'Departments — Create First!',
+          body:
+              'Define your organization departments. Every faculty profile requires a department — so create these BEFORE registering any faculty members.',
+          icon: Icons.business_outlined,
+          callToAction:
+              'Add departments first, then register faculty members.',
+        );
+      case 'Working Hours':
+        return const WalkthroughTooltip(
+          stepNumber: 5,
+          title: 'Working Hours',
+          body:
+              'Set your organization daily working schedule boundaries. The attendance monitoring system tracks presence only within these defined hours.',
+          icon: Icons.access_time_outlined,
+        );
+      case 'Attendance Policy':
+        return const WalkthroughTooltip(
+          stepNumber: 6,
+          title: 'Attendance Policy',
+          body:
+              'Configure absence thresholds, reminder timings, and evaluation intervals. These rules govern all automated attendance decisions system-wide.',
+          icon: Icons.policy_outlined,
+          callToAction:
+              'These settings directly affect faculty push notifications.',
+        );
+      case 'Campus Geofence':
+        return const WalkthroughTooltip(
+          stepNumber: 7,
+          title: '🗺️ Campus Geofence — Critical!',
+          body:
+              'Define the physical attendance boundary of your campus. Faculty can only check in when their GPS location is within this geographic area.',
+          icon: Icons.map_outlined,
+          callToAction:
+              'Set this accurately — it is the core of attendance tracking.',
+        );
+      case 'Security':
+        return const WalkthroughTooltip(
+          stepNumber: 8,
+          title: 'Security Settings',
+          body:
+              'Configure multi-factor authentication policies, device lock restrictions, and admin action audit logging for your organization.',
+          icon: Icons.shield_outlined,
+        );
+      case 'Notifications':
+        return const WalkthroughTooltip(
+          stepNumber: 9,
+          title: 'Notification Preferences',
+          body:
+              'Choose which system events generate admin alerts — new faculty registrations, campus exit violations, device swap requests, and more.',
+          icon: Icons.notifications_outlined,
+        );
+      case 'Account':
+        return const WalkthroughTooltip(
+          stepNumber: 10,
+          title: 'Administrator Account',
+          body:
+              'View and manage your admin profile, update credentials, and review active session and device registration details.',
+          icon: Icons.person_outline,
+          callToAction:
+              'Settings complete! Head back to explore the management modules.',
+        );
+      default:
+        return null;
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
 
   String _timeOfDayToTimeString(TimeOfDay time) {
     final hour = time.hour.toString().padLeft(2, '0');
@@ -598,45 +805,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _searchLocation(String query) async {
-    if (query.trim().isEmpty) return;
-    setState(() {
-      _isSearching = true;
-      _showSuggestions = true;
-    });
-    try {
-      final results = await ApiService.searchLocation(query);
-      setState(() {
-        _searchResults = results;
-      });
-    } catch (e) {
-      debugPrint('Search failed: $e');
-    } finally {
-      setState(() {
-        _isSearching = false;
-      });
-    }
-  }
 
-  void _selectSearchResult(Map<String, dynamic> result) {
-    final double lat = double.parse(result['lat']);
-    final double lon = double.parse(result['lon']);
-    
-    setState(() {
-      _latitudeController.text = lat.toStringAsFixed(6);
-      _longitudeController.text = lon.toStringAsFixed(6);
-      _hasGeofence = true;
-      _testLatLng = null;
-      _testResult = null;
-      _showSuggestions = false;
-      _searchResults.clear();
-      _searchController.text = result['display_name'];
-      
-      try {
-        _mapController.move(LatLng(lat, lon), 15.0);
-      } catch (_) {}
-    });
-  }
 
   Future<void> _addDepartment() async {
     final text = _newDeptController.text.trim();
@@ -749,32 +918,47 @@ class _SettingsScreenState extends State<SettingsScreen> {
             separatorBuilder: (context, index) => const Divider(height: 1),
             itemBuilder: (context, index) {
               final section = _sections[index];
-              final isSelected = _activeSection == section['name'];
-              return ListTile(
-                selected: isSelected,
-                leading: Icon(
-                  section['icon'],
-                  color: isSelected ? AppColors.primary : Colors.grey,
-                  size: 20,
-                ),
-                title: Text(
-                  section['name'],
-                  style: TextStyle(
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                    fontSize: 13,
-                    color: isSelected
-                        ? AppColors.primary
-                        : (isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight),
+              final sectionName = section['name'] as String;
+              final isSelected = _activeSection == sectionName;
+              final tile = Material(
+                color: Colors.transparent,
+                child: ListTile(
+                  selected: isSelected,
+                  leading: Icon(
+                    section['icon'],
+                    color: isSelected ? AppColors.primary : Colors.grey,
+                    size: 20,
                   ),
+                  title: Text(
+                    sectionName,
+                    style: TextStyle(
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                      fontSize: 13,
+                      color: isSelected
+                          ? AppColors.primary
+                          : (isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight),
+                    ),
+                  ),
+                  trailing: isSelected
+                      ? const Icon(Icons.chevron_right, color: AppColors.primary, size: 16)
+                      : null,
+                  onTap: () => _switchSection(sectionName),
                 ),
-                trailing: isSelected
-                    ? const Icon(Icons.chevron_right, color: AppColors.primary, size: 16)
-                    : null,
-                onTap: () {
-                  setState(() {
-                    _activeSection = section['name'];
-                  });
-                },
+              );
+              // Wrap tour sections with Showcase widget
+              final showcaseKey = _getSectionShowcaseKey(sectionName);
+              final tooltipContent = _buildSectionTooltip(sectionName);
+              if (showcaseKey == null || tooltipContent == null) return tile;
+              return Showcase.withWidget(
+                key: showcaseKey,
+                overlayOpacity: 0.78,
+                disableDefaultTargetGestures: true,
+                targetShapeBorder: const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(8)),
+                ),
+                targetPadding: const EdgeInsets.all(4),
+                container: tooltipContent,
+                child: tile,
               );
             },
           ),
@@ -826,12 +1010,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             itemCount: _sections.length,
             itemBuilder: (context, index) {
               final section = _sections[index];
-              final isSelected = _activeSection == section['name'];
-              return Padding(
+              final sectionName = section['name'] as String;
+              final isSelected = _activeSection == sectionName;
+              final chip = Padding(
                 padding: const EdgeInsets.only(right: 8.0),
                 child: ChoiceChip(
                   label: Text(
-                    section['name'],
+                    sectionName,
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
@@ -841,11 +1026,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onSelected: (val) {
                     if (val) {
                       setState(() {
-                        _activeSection = section['name'];
+                        _activeSection = sectionName;
                       });
                     }
                   },
                 ),
+              );
+              // Also wrap mobile chips with Showcase for tour support
+              final showcaseKey = _getSectionShowcaseKey(sectionName);
+              final tooltipContent = _buildSectionTooltip(sectionName);
+              if (showcaseKey == null || tooltipContent == null) return chip;
+              return Showcase.withWidget(
+                key: showcaseKey,
+                overlayOpacity: 0.78,
+                disableDefaultTargetGestures: true,
+                container: tooltipContent,
+                child: chip,
               );
             },
           ),
@@ -1275,85 +1471,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  void _locateManualCoordinates() {
-    if (_coordsFormKey.currentState?.validate() ?? false) {
-      final double lat = double.parse(_manualLatController.text.trim());
-      final double lng = double.parse(_manualLngController.text.trim());
-      
-      setState(() {
-        _latitudeController.text = lat.toStringAsFixed(6);
-        _longitudeController.text = lng.toStringAsFixed(6);
-        _testLatLng = null;
-        _testResult = null;
-        _hasGeofence = true;
-      });
 
-      // Fly map to coordinates
-      try {
-        _mapController.move(LatLng(lat, lng), 15.0);
-      } catch (_) {}
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Coordinates located successfully.'),
-          backgroundColor: AppColors.success,
-        ),
-      );
+  double _calculatePolygonAreaSqM(List<dynamic> vertices) {
+    if (vertices.length < 3) return 0.0;
+    double latSum = 0.0;
+    for (final v in vertices) {
+      latSum += (v['latitude'] as num).toDouble();
     }
-  }
-
-  Widget _buildInstructionsCard(ThemeData theme) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.primary.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(AppSizes.radiusMd),
-        border: Border.all(color: theme.colorScheme.primary.withOpacity(0.15)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.help_outline, color: theme.colorScheme.primary, size: 16),
-              const SizedBox(width: 8),
-              Text(
-                'How to get coordinates',
-                style: AppTypography.bodyMedium.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: theme.colorScheme.primary,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '1. Open Google Maps.\n'
-            '2. Search your college or institution.\n'
-            '3. Right-click (desktop) or long-press (mobile) on the exact campus entrance.\n'
-            '4. Copy the displayed Latitude and Longitude.\n'
-            '5. Paste them into the fields below.\n'
-            '6. Click Locate Coordinates.',
-            style: AppTypography.caption.copyWith(height: 1.4),
-          ),
-        ],
-      ),
-    );
+    final double latCenter = latSum / vertices.length;
+    
+    const double R = 6371000.0;
+    final double latRad = latCenter * math.pi / 180.0;
+    final double cosLat = math.cos(latRad);
+    
+    final List<Map<String, double>> projected = vertices.map((v) {
+      final double lat = (v['latitude'] as num).toDouble();
+      final double lng = (v['longitude'] as num).toDouble();
+      final double x = lng * math.pi / 180.0 * R * cosLat;
+      final double y = lat * math.pi / 180.0 * R;
+      return {'x': x, 'y': y};
+    }).toList();
+    
+    double area = 0.0;
+    final int n = projected.length;
+    for (int i = 0; i < n; i++) {
+      final p1 = projected[i];
+      final p2 = projected[(i + 1) % n];
+      area += p1['x']! * p2['y']! - p2['x']! * p1['y']!;
+    }
+    return area.abs() * 0.5;
   }
 
   // Campus Geofence Canvas + Coordinates Configurator
   Widget _buildGeofencePane(ThemeData theme) {
     final isDark = theme.brightness == Brightness.dark;
-    final lat = double.tryParse(_latitudeController.text) ?? 18.403817;
-    final lng = double.tryParse(_longitudeController.text) ?? 76.560943;
-    final centerLatLng = LatLng(lat, lng);
-    final width = MediaQuery.of(context).size.width;
-    final isDesktop = width >= 960;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (_savedLatitude != null && _savedLongitude != null)
+        if (_savedLatitude != null || _geofenceType == 'polygon')
           Container(
             margin: const EdgeInsets.only(bottom: 16),
             padding: const EdgeInsets.all(16),
@@ -1378,7 +1535,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Active Campus Geofence (Saved in Database)',
+                        _geofenceType == 'polygon'
+                            ? 'Active Campus Geofence: Polygon Boundary'
+                            : 'Active Campus Geofence (Saved in Database)',
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.bold,
@@ -1387,7 +1546,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        'Latitude: ${_savedLatitude!.toStringAsFixed(6)}   |   Longitude: ${_savedLongitude!.toStringAsFixed(6)}',
+                        _geofenceType == 'polygon'
+                            ? 'Vertices Count: ${_geofenceVertices?.length ?? 0}'
+                            : 'Latitude: ${_savedLatitude?.toStringAsFixed(6)}   |   Longitude: ${_savedLongitude?.toStringAsFixed(6)}',
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
@@ -1396,7 +1557,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Radius: ${_savedRadiusMeters?.round()}m   |   Area: ${(math.pi * math.pow(_savedRadiusMeters ?? 0, 2) / 10000).toStringAsFixed(2)} ha (~${_formatNumber((math.pi * math.pow(_savedRadiusMeters ?? 0, 2)).round())} m²)',
+                        _geofenceType == 'polygon'
+                            ? 'Calculated Area: ${(_geofenceVertices == null) ? 0.0 : _calculatePolygonAreaSqM(_geofenceVertices!).toStringAsFixed(1)} m²'
+                            : 'Radius: ${_savedRadiusMeters?.round()}m   |   Area: ${(math.pi * math.pow(_savedRadiusMeters ?? 0, 2) / 10000).toStringAsFixed(2)} ha (~${_formatNumber((math.pi * math.pow(_savedRadiusMeters ?? 0, 2)).round())} m²)',
                         style: TextStyle(
                           fontSize: 11,
                           color: isDark ? Colors.grey.shade500 : Colors.grey.shade600,
@@ -1405,24 +1568,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ],
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.center_focus_strong, color: AppColors.primary),
-                  tooltip: 'Center map on saved coordinates',
-                  onPressed: () {
-                    try {
-                      _mapController.move(LatLng(_savedLatitude!, _savedLongitude!), 15.0);
-                      setState(() {
-                        _latitudeController.text = _savedLatitude!.toStringAsFixed(6);
-                        _longitudeController.text = _savedLongitude!.toStringAsFixed(6);
-                        _radiusMeters = _savedRadiusMeters ?? 500.0;
-                      });
-                    } catch (_) {}
-                  },
-                ),
               ],
             ),
           ),
-        if (!_hasGeofence)
+        if (_savedLatitude == null && _geofenceType != 'polygon')
           Container(
             margin: const EdgeInsets.only(bottom: 16),
             padding: const EdgeInsets.all(16),
@@ -1437,7 +1586,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(width: 12),
                 const Expanded(
                   child: Text(
-                    "No campus location has been configured yet. Search, drag the marker, or paste Google Maps coordinates to begin.",
+                    "No campus location has been configured yet. Use the GIS interface below to draw or search.",
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
@@ -1449,693 +1598,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
 
-        Card(
-          color: isDark ? AppColors.surfaceDark : Colors.white,
-          margin: const EdgeInsets.only(bottom: 16),
-          child: ExpansionTile(
-            title: Text(
-              'Use Google Maps Coordinates (Recommended for Better Accuracy)',
-              style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.bold),
-            ),
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Form(
-                  key: _coordsFormKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _buildInstructionsCard(theme),
-                      const SizedBox(height: 16),
-                      isDesktop
-                          ? Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  child: AppInput(
-                                    label: 'Latitude',
-                                    hint: 'e.g., 18.403817',
-                                    controller: _manualLatController,
-                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                    prefixIcon: Icons.location_on_outlined,
-                                    validator: (value) {
-                                      if (value == null || value.trim().isEmpty) {
-                                        return 'Required';
-                                      }
-                                      final parsed = double.tryParse(value);
-                                      if (parsed == null) {
-                                        return 'Invalid number';
-                                      }
-                                      if (parsed < -90.0 || parsed > 90.0) {
-                                        return '-90 to 90';
-                                      }
-                                      return null;
-                                    },
-                                  ),
-                                ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: AppInput(
-                                    label: 'Longitude',
-                                    hint: 'e.g., 76.560943',
-                                    controller: _manualLngController,
-                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                    prefixIcon: Icons.location_on_outlined,
-                                    validator: (value) {
-                                      if (value == null || value.trim().isEmpty) {
-                                        return 'Required';
-                                      }
-                                      final parsed = double.tryParse(value);
-                                      if (parsed == null) {
-                                        return 'Invalid number';
-                                      }
-                                      if (parsed < -180.0 || parsed > 180.0) {
-                                        return '-180 to 180';
-                                      }
-                                      return null;
-                                    },
-                                  ),
-                                ),
-                                const SizedBox(width: 16),
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 4.0),
-                                  child: AppButton(
-                                    text: 'Locate Coordinates',
-                                    onPressed: _locateManualCoordinates,
-                                  ),
-                                ),
-                              ],
-                            )
-                          : Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Expanded(
-                                      child: AppInput(
-                                        label: 'Latitude',
-                                        hint: 'e.g., 18.403817',
-                                        controller: _manualLatController,
-                                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                        prefixIcon: Icons.location_on_outlined,
-                                        validator: (value) {
-                                          if (value == null || value.trim().isEmpty) {
-                                            return 'Required';
-                                          }
-                                          final parsed = double.tryParse(value);
-                                          if (parsed == null) {
-                                            return 'Invalid number';
-                                          }
-                                          if (parsed < -90.0 || parsed > 90.0) {
-                                            return '-90 to 90';
-                                          }
-                                          return null;
-                                        },
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: AppInput(
-                                        label: 'Longitude',
-                                        hint: 'e.g., 76.560943',
-                                        controller: _manualLngController,
-                                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                        prefixIcon: Icons.location_on_outlined,
-                                        validator: (value) {
-                                          if (value == null || value.trim().isEmpty) {
-                                            return 'Required';
-                                          }
-                                          final parsed = double.tryParse(value);
-                                          if (parsed == null) {
-                                            return 'Invalid number';
-                                          }
-                                          if (parsed < -180.0 || parsed > 180.0) {
-                                            return '-180 to 180';
-                                          }
-                                          return null;
-                                        },
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 16),
-                                AppButton(
-                                  text: 'Locate Coordinates',
-                                  onPressed: _locateManualCoordinates,
-                                ),
-                              ],
-                            ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-
         Container(
-          height: 380,
+          height: 600,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(AppSizes.radiusLg),
             border: Border.all(color: isDark ? AppColors.borderDark : AppColors.borderLight),
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(AppSizes.radiusLg - 1),
-            child: Stack(
-              children: [
-                FlutterMap(
-                  mapController: _mapController,
-                  options: MapOptions(
-                    initialCenter: centerLatLng,
-                    initialZoom: 15.0,
-                    onTap: (tapPosition, point) {
-                      if (_isTestMode) {
-                        final dist = _calculateDistance(
-                          centerLatLng.latitude,
-                          centerLatLng.longitude,
-                          point.latitude,
-                          point.longitude,
-                        );
-                        final inside = dist <= _radiusMeters;
-                        setState(() {
-                          _testLatLng = point;
-                          _testResult = inside
-                              ? 'SUCCESS: Test point (${point.latitude.toStringAsFixed(6)}, ${point.longitude.toStringAsFixed(6)}) lies INSIDE the campus boundaries. Distance: ${dist.toStringAsFixed(1)}m.'
-                              : 'VIOLATION: Test point (${point.latitude.toStringAsFixed(6)}, ${point.longitude.toStringAsFixed(6)}) lies OUTSIDE the active geofence. Distance: ${dist.toStringAsFixed(1)}m.';
-                        });
-                      } else {
-                        setState(() {
-                          _latitudeController.text = point.latitude.toStringAsFixed(6);
-                          _longitudeController.text = point.longitude.toStringAsFixed(6);
-                          _hasGeofence = true;
-                          _testLatLng = null;
-                          _testResult = null;
-                        });
-                      }
-                    },
-                  ),
-                  children: [
-                    TileLayer(
-                      urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                      userAgentPackageName: 'com.premises.app',
-                    ),
-                    CircleLayer(
-                      circles: [
-                        CircleMarker(
-                          point: centerLatLng,
-                          radius: _radiusMeters,
-                          useRadiusInMeter: true,
-                          color: AppColors.primary.withOpacity(0.12),
-                          borderColor: AppColors.primary,
-                          borderStrokeWidth: 2,
-                        ),
-                      ],
-                    ),
-                    MarkerLayer(
-                      markers: [
-                        Marker(
-                          point: centerLatLng,
-                          width: 40,
-                          height: 40,
-                          child: const Icon(
-                            Icons.location_on,
-                            color: AppColors.danger,
-                            size: 40,
-                          ),
-                        ),
-                        if (_isTestMode && _testLatLng != null)
-                          Marker(
-                            point: _testLatLng!,
-                            width: 40,
-                            height: 40,
-                            child: const Icon(
-                              Icons.location_on,
-                              color: Colors.orange,
-                              size: 40,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ],
-                ),
-
-                // Interactive Search Bar Overlay
-                Positioned(
-                  top: 16,
-                  left: 16,
-                  right: 16,
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Container(
-                              height: 44,
-                              decoration: BoxDecoration(
-                                color: isDark ? AppColors.surfaceDark : Colors.white,
-                                borderRadius: BorderRadius.circular(AppSizes.radiusMd),
-                                border: Border.all(color: isDark ? AppColors.borderDark : AppColors.borderLight),
-                                boxShadow: [
-                                  BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 8, offset: const Offset(0, 3)),
-                                ],
-                              ),
-                              child: TextField(
-                                controller: _searchController,
-                                style: const TextStyle(fontSize: 13),
-                                decoration: InputDecoration(
-                                  hintText: 'Search campus, address, or landmark...',
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                                  border: InputBorder.none,
-                                  enabledBorder: InputBorder.none,
-                                  focusedBorder: InputBorder.none,
-                                  prefixIcon: const Icon(Icons.search, size: 18, color: Colors.grey),
-                                  suffixIcon: _isSearching
-                                      ? const SizedBox(
-                                          width: 16,
-                                          height: 16,
-                                          child: Padding(
-                                            padding: EdgeInsets.all(12.0),
-                                            child: CircularProgressIndicator(strokeWidth: 2),
-                                          ),
-                                        )
-                                      : _searchController.text.isNotEmpty
-                                          ? IconButton(
-                                              icon: const Icon(Icons.clear, size: 16),
-                                              onPressed: () {
-                                                _searchController.clear();
-                                                setState(() {
-                                                  _showSuggestions = false;
-                                                  _searchResults.clear();
-                                                });
-                                              },
-                                            )
-                                          : null,
-                                ),
-                                onChanged: (text) {
-                                  if (text.length > 2) {
-                                    _searchLocation(text);
-                                  } else {
-                                    setState(() {
-                                      _showSuggestions = false;
-                                      _searchResults.clear();
-                                    });
-                                  }
-                                },
-                                onSubmitted: (query) {
-                                  _searchLocation(query);
-                                },
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Container(
-                            height: 44,
-                            width: 44,
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.primary,
-                              borderRadius: BorderRadius.circular(AppSizes.radiusMd),
-                            ),
-                            child: IconButton(
-                              icon: const Icon(Icons.my_location, color: Colors.white, size: 18),
-                              onPressed: () {
-                                setState(() {
-                                  _latitudeController.text = '18.403817';
-                                  _longitudeController.text = '76.560943';
-                                  _hasGeofence = true;
-                                  _testLatLng = null;
-                                  _testResult = null;
-                                  try {
-                                    _mapController.move(const LatLng(18.403817, 76.560943), 15.0);
-                                  } catch (_) {}
-                                });
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (_showSuggestions && _searchResults.isNotEmpty)
-                        Container(
-                          margin: const EdgeInsets.only(top: 4),
-                          constraints: const BoxConstraints(maxHeight: 200),
-                          decoration: BoxDecoration(
-                            color: isDark ? AppColors.surfaceDark : Colors.white,
-                            borderRadius: BorderRadius.circular(AppSizes.radiusMd),
-                            border: Border.all(color: isDark ? AppColors.borderDark : AppColors.borderLight),
-                            boxShadow: [
-                              BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10),
-                            ],
-                          ),
-                          child: ListView.separated(
-                            padding: EdgeInsets.zero,
-                            shrinkWrap: true,
-                            itemCount: _searchResults.length,
-                            separatorBuilder: (context, index) => const Divider(height: 1),
-                            itemBuilder: (context, index) {
-                              final result = _searchResults[index];
-                              return ListTile(
-                                dense: true,
-                                leading: const Icon(Icons.location_on_outlined, size: 16),
-                                title: Text(
-                                  result['display_name'],
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontSize: 12),
-                                ),
-                                onTap: () => _selectSearchResult(result),
-                              );
-                            },
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-
-                // Zoom controls overlay
-                Positioned(
-                  bottom: 16,
-                  right: 16,
-                  child: Column(
-                    children: [
-                      _buildMapControlButton(Icons.add, () {
-                        try {
-                          _mapController.move(_mapController.camera.center, _mapController.camera.zoom + 1);
-                        } catch (_) {}
-                      }),
-                      const SizedBox(height: 4),
-                      _buildMapControlButton(Icons.remove, () {
-                        try {
-                          _mapController.move(_mapController.camera.center, _mapController.camera.zoom - 1);
-                        } catch (_) {}
-                      }),
-                    ],
-                  ),
-                ),
-
-                // Manual Draggable Control Helpers
-                Positioned(
-                  bottom: 16,
-                  left: 16,
-                  child: Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: isDark ? AppColors.surfaceDark : Colors.white,
-                      borderRadius: BorderRadius.circular(AppSizes.radiusMd),
-                      boxShadow: [
-                        BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 4),
-                      ],
-                    ),
-                    child: Row(
+            child: _googleMapsApiKey.isEmpty
+                ? const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(Icons.drag_indicator, size: 14, color: Colors.grey),
-                        const SizedBox(width: 4),
-                        Text('Nudge Pin: ', style: AppTypography.caption.copyWith(fontSize: 10, fontWeight: FontWeight.bold)),
-                        IconButton(
-                          icon: const Icon(Icons.arrow_left, size: 18),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          onPressed: () {
-                            final double lng = double.tryParse(_longitudeController.text) ?? 76.560943;
-                            setState(() {
-                              _longitudeController.text = (lng - 0.0001).toStringAsFixed(6);
-                              _hasGeofence = true;
-                            });
-                          },
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.arrow_drop_up, size: 18),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          onPressed: () {
-                            final double lat = double.tryParse(_latitudeController.text) ?? 18.403817;
-                            setState(() {
-                              _latitudeController.text = (lat + 0.0001).toStringAsFixed(6);
-                              _hasGeofence = true;
-                            });
-                          },
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.arrow_drop_down, size: 18),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          onPressed: () {
-                            final double lat = double.tryParse(_latitudeController.text) ?? 18.403817;
-                            setState(() {
-                              _latitudeController.text = (lat - 0.0001).toStringAsFixed(6);
-                              _hasGeofence = true;
-                            });
-                          },
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.arrow_right, size: 18),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          onPressed: () {
-                            final double lng = double.tryParse(_longitudeController.text) ?? 76.560943;
-                            setState(() {
-                              _longitudeController.text = (lng + 0.0001).toStringAsFixed(6);
-                              _hasGeofence = true;
-                            });
-                          },
-                        ),
+                        CircularProgressIndicator(),
+                        SizedBox(height: 16),
+                        Text('Initializing premium GIS configurator...'),
                       ],
                     ),
-                  ),
-                ),
-
-                if (_isLoadingGeofence)
-                  Container(
-                    color: Colors.black.withOpacity(0.1),
-                    child: const Center(child: CircularProgressIndicator()),
-                  ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 24),
-
-        // Radius Slider Panel
-        Container(
-          padding: const EdgeInsets.all(20.0),
-          decoration: BoxDecoration(
-            color: isDark ? AppColors.surfaceDark : Colors.grey.shade50,
-            borderRadius: BorderRadius.circular(AppSizes.radiusLg),
-            border: Border.all(color: isDark ? AppColors.borderDark : AppColors.borderLight),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Radius Configuration', style: AppTypography.bodyLarge.copyWith(fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 2),
-                      Text('Adjust the geofence boundary slider to resize', style: AppTypography.caption),
-                    ],
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.primary.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(AppSizes.radiusMd),
-                    ),
-                    child: Text(
-                      '${_radiusMeters.round()}m',
-                      style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.bold, fontSize: 13),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Text('100m', style: AppTypography.caption.copyWith(fontWeight: FontWeight.bold)),
-                  Expanded(
-                    child: Slider(
-                      value: _radiusMeters,
-                      min: 100,
-                      max: 2000,
-                      divisions: 38,
-                      label: '${_radiusMeters.round()}m',
-                      onChanged: (val) {
-                        setState(() {
-                          _radiusMeters = val;
-                          _testLatLng = null;
-                          _testResult = null;
-                        });
-                      },
-                    ),
-                  ),
-                  Text('2000m', style: AppTypography.caption.copyWith(fontWeight: FontWeight.bold)),
-                ],
-              ),
-              const SizedBox(height: 12),
-              _buildLiveStatsCard(theme, lat, lng),
-            ],
-          ),
-        ),
-        const SizedBox(height: 24),
-
-        // Boundary Coverage Simulator
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: isDark ? AppColors.surfaceDark : Colors.white,
-            borderRadius: BorderRadius.circular(AppSizes.radiusLg),
-            border: Border.all(color: isDark ? AppColors.borderDark : AppColors.borderLight),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Boundary Coverage Simulator', style: AppTypography.bodyLarge.copyWith(fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 2),
-                      Text('Simulate boundary verification by tapping on the map', style: AppTypography.caption),
-                    ],
-                  ),
-                  Switch(
-                    value: _isTestMode,
-                    onChanged: (val) {
+                  )
+                : GoogleMapEditor(
+                    apiKey: _googleMapsApiKey,
+                    initialLatitude: _savedLatitude ?? 18.403817,
+                    initialLongitude: _savedLongitude ?? 76.560943,
+                    initialRadius: _savedRadiusMeters ?? 500.0,
+                    initialType: _geofenceType,
+                    initialVerticesJson: _geofenceVertices != null ? json.encode(_geofenceVertices) : null,
+                    onSave: (Map<String, dynamic> data) async {
+                      await _saveCustomGeofence(data);
+                    },
+                    onChanged: () {
                       setState(() {
-                        _isTestMode = val;
-                        _testLatLng = null;
-                        _testResult = null;
+                        _geofenceIsDirty = true;
                       });
                     },
                   ),
-                ],
-              ),
-              if (_isTestMode) ...[
-                const Divider(height: 24),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: isDark ? AppColors.backgroundDark : Colors.grey.shade50,
-                    borderRadius: BorderRadius.circular(AppSizes.radiusMd),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.touch_app_outlined, size: 18, color: Colors.grey),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          _testResult ?? 'Tap anywhere on the interactive map above to simulate verification.',
-                          style: TextStyle(
-                            fontSize: 11,
-                            height: 1.4,
-                            fontWeight: _testResult != null ? FontWeight.bold : FontWeight.normal,
-                            color: _testResult == null
-                                ? Colors.grey
-                                : (_testResult!.startsWith('SUCCESS') ? AppColors.success : AppColors.danger),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-        const SizedBox(height: 24),
-
-        Row(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            if (_isSavingGeofence)
-              const CircularProgressIndicator()
-            else
-              AppButton(
-                text: 'Save Geofence Settings',
-                onPressed: _saveGeofence,
-              ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildLiveStatsCard(ThemeData theme, double lat, double lng) {
-    final isDark = theme.brightness == Brightness.dark;
-    final double areaSqM = math.pi * math.pow(_radiusMeters, 2);
-    final double areaHectares = areaSqM / 10000;
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isDark ? AppColors.backgroundDark : Colors.white,
-        borderRadius: BorderRadius.circular(AppSizes.radiusMd),
-        border: Border.all(color: isDark ? AppColors.borderDark : AppColors.borderLight),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Live Boundary Specifications', style: AppTypography.caption.copyWith(fontWeight: FontWeight.bold, letterSpacing: 0.5)),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _buildStatItem(
-                  icon: Icons.gps_fixed,
-                  label: 'Coordinates',
-                  value: '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}',
-                ),
-              ),
-              Expanded(
-                child: _buildStatItem(
-                  icon: Icons.aspect_ratio_outlined,
-                  label: 'Estimated Area',
-                  value: '${areaHectares.toStringAsFixed(2)} ha (~${_formatNumber(areaSqM.round())} m²)',
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _buildStatItem(
-                  icon: Icons.radar_outlined,
-                  label: 'Perimeter Boundary',
-                  value: 'Circular (Radius: ${_radiusMeters.round()}m)',
-                ),
-              ),
-              Expanded(
-                child: _buildStatItem(
-                  icon: Icons.lock_clock_outlined,
-                  label: 'Lock Status',
-                  value: 'Automatic Generation',
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatItem({required IconData icon, required String label, required String value}) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, size: 16, color: AppColors.primary.withOpacity(0.8)),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.w500)),
-              const SizedBox(height: 2),
-              Text(value, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
-            ],
           ),
         ),
       ],
@@ -2147,24 +1644,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return number.toString().replaceAllMapped(reg, (Match match) => '${match[1]},');
   }
 
-  Widget _buildMapControlButton(IconData icon, VoidCallback onPressed) {
-    return Container(
-      height: 32,
-      width: 32,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(4),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 4),
-        ],
-      ),
-      child: IconButton(
-        icon: Icon(icon, color: Colors.black, size: 16),
-        padding: EdgeInsets.zero,
-        onPressed: onPressed,
-      ),
-    );
-  }
+
 
   Widget _buildDepartmentsPane(ThemeData theme) {
     return Column(

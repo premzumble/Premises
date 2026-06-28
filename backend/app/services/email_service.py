@@ -18,7 +18,7 @@ jinja_env = Environment(
 class EmailService:
     @staticmethod
     def _render_template(template_name: str, **kwargs) -> str:
-        template = jinja_env.get_member(template_name)
+        template = jinja_env.get_template(template_name)
         return template.render(**kwargs)
 
     @staticmethod
@@ -37,10 +37,7 @@ class EmailService:
 
         try:
             # Render HTML template
-            html_content = jinja_env.get_template("otp_email.html").render(
-                otp=otp,
-                subject=subject
-            )
+            html_content = EmailService._render_template("otp_email.html", otp=otp, subject=subject)
 
             # Create message
             msg = MIMEMultipart('alternative')
@@ -52,24 +49,84 @@ class EmailService:
             msg.attach(MIMEText(html_content, 'html'))
 
             # Send via SMTP
-            with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
+            # If using port 465, use SMTP_SSL. If 587, use SMTP + starttls
+            if settings.SMTP_PORT == 465:
+                server = smtplib.SMTP_SSL(settings.SMTP_HOST, settings.SMTP_PORT)
+            else:
+                server = smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT)
+                server.ehlo()
                 if settings.SMTP_TLS:
                     server.starttls()
-                    print("=" * 60)
-                    print("SMTP_USERNAME:", settings.SMTP_USERNAME)
-                    print("SMTP_PASSWORD:", settings.SMTP_PASSWORD)
-                    print("SMTP_FROM_EMAIL:", settings.SMTP_FROM_EMAIL)
-                    print("SMTP_HOST:", settings.SMTP_HOST)
-                    print("SMTP_PORT:", settings.SMTP_PORT)
-                    print("=" * 60)
+                    server.ehlo()
+
+            try:
                 server.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
                 server.send_message(msg)
-
-            logger.info(f"[EMAIL] Successfully sent {purpose} OTP to {email}")
-            return True
+                logger.info(f"[EMAIL] Successfully sent {purpose} OTP to {email}")
+                return True
+            finally:
+                server.quit()
 
         except Exception as e:
             logger.error(f"[EMAIL] Failed to send email to {email}: {str(e)}")
+            return False
+
+    @staticmethod
+    def send_welcome_email(email: str, admin_name: str, org_name: str, org_code: str) -> bool:
+        """
+        Sends a professional welcome email with the organization code.
+        """
+        if not settings.SMTP_USERNAME or not settings.SMTP_PASSWORD:
+            logger.warning(f"[EMAIL] SMTP credentials not configured. Org Code for {email}: {org_code}")
+            return False
+
+        subject = "Premises - Organization Created Successfully"
+
+        try:
+            # Render HTML template
+            html_content = EmailService._render_template(
+                "welcome_email.html",
+                admin_name=admin_name,
+                org_name=org_name,
+                org_code=org_code,
+                subject=subject
+            )
+
+            # Create message
+            msg = MIMEMultipart('alternative')
+            msg['Subject'] = subject
+            msg['From'] = f"{settings.SMTP_FROM_NAME} <{settings.SMTP_FROM_EMAIL}>"
+            msg['To'] = email
+
+            plain_text = (
+                f"Congratulations! Your organization {org_name} has been successfully registered on Premises.\n\n"
+                f"Your Organization Code is: {org_code}\n\n"
+                "This code is required when faculty members register to join your workspace. Please keep it secure.\n\n"
+                "You can now log in to your admin dashboard to manage your workspace."
+            )
+            msg.attach(MIMEText(plain_text, 'plain'))
+            msg.attach(MIMEText(html_content, 'html'))
+
+            # Send via SMTP
+            if settings.SMTP_PORT == 465:
+                server = smtplib.SMTP_SSL(settings.SMTP_HOST, settings.SMTP_PORT)
+            else:
+                server = smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT)
+                server.ehlo()
+                if settings.SMTP_TLS:
+                    server.starttls()
+                    server.ehlo()
+
+            try:
+                server.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
+                server.send_message(msg)
+                logger.info(f"[EMAIL] Successfully sent welcome email to {email}")
+                return True
+            finally:
+                server.quit()
+
+        except Exception as e:
+            logger.error(f"[EMAIL] Failed to send welcome email to {email}: {str(e)}")
             return False
 
     @staticmethod
@@ -78,11 +135,18 @@ class EmailService:
         if not settings.SMTP_USERNAME or not settings.SMTP_PASSWORD:
             return False
         try:
-            with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as server:
+            if settings.SMTP_PORT == 465:
+                server = smtplib.SMTP_SSL(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10)
+            else:
+                server = smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10)
                 if settings.SMTP_TLS:
                     server.starttls()
+
+            try:
                 server.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
-            return True
+                return True
+            finally:
+                server.quit()
         except Exception as e:
             logger.error(f"[EMAIL] SMTP Health Check failed: {str(e)}")
             return False

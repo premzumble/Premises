@@ -21,6 +21,8 @@ class ProfileResponse(BaseModel):
     department_name: Optional[str] = None
     registered_device: Optional[str] = None
 
+from app.schemas.geofence import GeofenceVertexResponse
+
 class DashboardSummaryResponse(BaseModel):
     attendance_status: str  # PRESENT, OUTSIDE, ABSENT, NOT_STARTED
     check_in_time: Optional[str] = None
@@ -30,6 +32,8 @@ class DashboardSummaryResponse(BaseModel):
     geofence_latitude: float
     geofence_longitude: float
     geofence_radius: float
+    geofence_type: str = "circle"
+    geofence_vertices: Optional[List[GeofenceVertexResponse]] = None
     allowed_outside_minutes: int = 25
     reminder_1_minutes: int = 0
     reminder_2_minutes: int = 0

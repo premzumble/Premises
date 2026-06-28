@@ -145,6 +145,8 @@ class SessionManager {
     _geofenceLatitude = null;
     _geofenceLongitude = null;
     _geofenceRadius = null;
+    _geofenceType = null;
+    _geofenceVerticesJson = null;
     unreadNotifications.value = 0;
 
     final prefs = await SharedPreferences.getInstance();
@@ -161,6 +163,8 @@ class SessionManager {
   static double? _geofenceLatitude;
   static double? _geofenceLongitude;
   static double? _geofenceRadius;
+  static String? _geofenceType;
+  static String? _geofenceVerticesJson;
   static int? _allowedOutsideMinutes;
   static int? _reminder1Minutes;
   static int? _reminder2Minutes;
@@ -170,6 +174,8 @@ class SessionManager {
   static double? get geofenceLatitude => _geofenceLatitude;
   static double? get geofenceLongitude => _geofenceLongitude;
   static double? get geofenceRadius => _geofenceRadius;
+  static String? get geofenceType => _geofenceType;
+  static String? get geofenceVerticesJson => _geofenceVerticesJson;
   static int? get allowedOutsideMinutes => _allowedOutsideMinutes;
   static int? get reminder1Minutes => _reminder1Minutes;
   static int? get reminder2Minutes => _reminder2Minutes;
@@ -179,7 +185,9 @@ class SessionManager {
   static void cacheGeofence(
     double lat,
     double lng,
-    double rad, [
+    double rad,
+    String type,
+    String? verticesJson, [
     int? allowedOutside,
     int? reminder1,
     int? reminder2,
@@ -189,6 +197,8 @@ class SessionManager {
     _geofenceLatitude = lat;
     _geofenceLongitude = lng;
     _geofenceRadius = rad;
+    _geofenceType = type;
+    _geofenceVerticesJson = verticesJson;
     if (allowedOutside != null) {
       _allowedOutsideMinutes = allowedOutside;
     }
@@ -200,4 +210,9 @@ class SessionManager {
 
   // Global unread notifications notifier
   static final ValueNotifier<int> unreadNotifications = ValueNotifier<int>(0);
+
+  // UI State cache
+  static bool _bannerDismissed = false;
+  static bool get bannerDismissed => _bannerDismissed;
+  static set bannerDismissed(bool val) => _bannerDismissed = val;
 }

@@ -39,23 +39,109 @@ class AttendanceService:
         
         return R * c
 
+    @staticmethod
+    def _is_point_in_polygon(lat: float, lng: float, polygon: List[Tuple[float, float]]) -> bool:
+        num_vertices = len(polygon)
+        if num_vertices < 3:
+            return False
+        inside = False
+        p1lat, p1lng = polygon[0]
+        for i in range(1, num_vertices + 1):
+            p2lat, p2lng = polygon[i % num_vertices]
+            if lng > min(p1lng, p2lng):
+                if lng <= max(p1lng, p2lng):
+                    if lat <= max(p1lat, p2lat):
+                        if p1lng != p2lng:
+                            xinters = (lng - p1lng) * (p2lat - p1lat) / (p2lng - p1lng) + p1lat
+                        if p1lat == p2lat or lat <= xinters:
+                            inside = not inside
+            p1lat, p1lng = p2lat, p2lng
+        return inside
+
+    @staticmethod
+    def _distance_point_to_segment_meters(lat_p: float, lng_p: float, lat_a: float, lng_a: float, lat_b: float, lng_b: float) -> float:
+        R = 6371000.0
+        lat_center_rad = math.radians(lat_p)
+        cos_lat = math.cos(lat_center_rad)
+        
+        # Project relative to P at (0, 0)
+        ax = math.radians(lng_a - lng_p) * R * cos_lat
+        ay = math.radians(lat_a - lat_p) * R
+        bx = math.radians(lng_b - lng_p) * R * cos_lat
+        by = math.radians(lat_b - lat_p) * R
+        
+        dx = bx - ax
+        dy = by - ay
+        lensq = dx * dx + dy * dy
+        
+        if lensq == 0.0:
+            return math.sqrt(ax * ax + ay * ay)
+            
+        t = ((0.0 - ax) * dx + (0.0 - ay) * dy) / lensq
+        t = max(0.0, min(1.0, t))
+        
+        cx = ax + t * dx
+        cy = ay + t * dy
+        return math.sqrt(cx * cx + cy * cy)
+
+    def _distance_point_to_polygon_meters(self, lat_p: float, lng_p: float, polygon: List[Tuple[float, float]]) -> float:
+        n = len(polygon)
+        if n == 0:
+            return float("inf")
+        min_dist = float("inf")
+        for i in range(n):
+            lat_a, lng_a = polygon[i]
+            lat_b, lng_b = polygon[(i + 1) % n]
+            dist = self._distance_point_to_segment_meters(lat_p, lng_p, lat_a, lng_a, lat_b, lng_b)
+            if dist < min_dist:
+                min_dist = dist
+        return min_dist
+
     async def check_geofence_status(self, organization_id: uuid.UUID, lat: float, lng: float) -> Tuple[bool, float, Optional[Geofence]]:
         geofences = await self.geofence_repo.get_active_by_org(organization_id)
         if not geofences:
             return True, 0.0, None # If no geofences defined, default to inside for safety
 
-        min_dist = float("inf")
-        closest_geofence = None
+        inside_geofences = []
+        outside_distances = []
 
         for gf in geofences:
-            dist = self.calculate_haversine_distance(lat, lng, gf.latitude, gf.longitude)
-            if dist < min_dist:
-                min_dist = dist
-                closest_geofence = gf
+            if gf.geofence_type == "circle":
+                # Ensure we have valid circle values
+                gf_lat = gf.latitude if gf.latitude is not None else 0.0
+                gf_lng = gf.longitude if gf.longitude is not None else 0.0
+                gf_rad = gf.radius_meters if gf.radius_meters is not None else 0.0
+                
+                dist = self.calculate_haversine_distance(lat, lng, gf_lat, gf_lng)
+                if dist <= gf_rad:
+                    inside_geofences.append((dist, gf))
+                else:
+                    outside_distances.append((dist, gf))
+            elif gf.geofence_type == "polygon" and gf.vertices:
+                poly_points = [(v.latitude, v.longitude) for v in gf.vertices]
+                is_inside = self._is_point_in_polygon(lat, lng, poly_points)
+                if is_inside:
+                    inside_geofences.append((0.0, gf))
+                else:
+                    dist = self._distance_point_to_polygon_meters(lat, lng, poly_points)
+                    outside_distances.append((dist, gf))
+            else:
+                # Fallback / active but empty geofence is treated as outside
+                outside_distances.append((float("inf"), gf))
 
-        if closest_geofence and min_dist <= closest_geofence.radius_meters:
-            return True, min_dist, closest_geofence
-        return False, min_dist, closest_geofence
+        if inside_geofences:
+            # If inside any, return the closest matching inside geofence
+            inside_geofences.sort(key=lambda x: x[0])
+            closest_inside = inside_geofences[0]
+            return True, closest_inside[0], closest_inside[1]
+
+        if outside_distances:
+            # If outside all, return the closest outside geofence
+            outside_distances.sort(key=lambda x: x[0])
+            closest_outside = outside_distances[0]
+            return False, closest_outside[0], closest_outside[1]
+
+        return False, float("inf"), None
 
     def get_evaluated_status(self, record: AttendanceRecord, policy: AttendancePolicy) -> str:
         if not record.first_entry_time:

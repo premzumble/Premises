@@ -208,6 +208,16 @@ class AuthService:
 
         await self.db.commit()
         await self.db.refresh(organization)
+
+        # Send Welcome Email with Org Code
+        # We use local variables instead of model attributes to avoid async expiry issues after commit
+        EmailService.send_welcome_email(
+            email=reg_data["email"],
+            admin_name=reg_data["admin_name"],
+            org_name=reg_data["org_name"],
+            org_code=org_code
+        )
+
         logger.info(f"Successfully created organization '{organization.name}' (ID: {organization.id}) and admin '{admin.full_name}' (ID: {admin.id})")
 
         return VerifyOtpResponse(

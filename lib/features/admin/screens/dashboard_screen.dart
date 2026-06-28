@@ -1,12 +1,17 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:showcaseview/showcaseview.dart';
 import '../../../core/design_system/app_colors.dart';
 import '../../../core/design_system/app_sizes.dart';
 import '../../../core/design_system/app_typography.dart';
 import '../../../core/widgets/search_bar.dart';
 import '../../../core/api_service.dart';
 import '../../../core/session_manager.dart';
+import '../walkthrough/controller/walkthrough_controller.dart';
+import '../walkthrough/walkthrough_steps_definition.dart';
+import '../walkthrough/widgets/walkthrough_tooltip.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -25,6 +30,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int _pendingRequestsCount = 0;
   int _totalFacultyCount = 0;
   String _orgName = '';
+  String _orgCode = '';
+  String _adminEmail = '';
+  String _orgCreatedAt = '';
+  String _orgStatus = '';
+  bool _showBanner = false;
   List<dynamic> _recentActivities = [];
   Timer? _refreshTimer;
 
@@ -63,6 +73,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       if (mounted) {
         _fetchSummaryData(showLoading: false);
+      }
+    });
+    // Notify walkthrough controller that Dashboard is rendered.
+    // The controller starts Phase 1 only when awaiting this signal.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        WalkthroughController.instance.onDashboardReady(context);
       }
     });
   }
@@ -106,7 +123,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
             _pendingRequestsCount = data['pending_requests_count'] ?? 0;
             _totalFacultyCount = data['total_faculty'] ?? 0;
             _orgName = data['org_name'] ?? '';
+            _orgCode = data['org_code'] ?? '';
+            _adminEmail = data['admin_email'] ?? '';
+            _orgStatus = data['org_status'] ?? 'ACTIVE';
+            
+            if (data['org_created_at'] != null) {
+              try {
+                final dt = DateTime.parse(data['org_created_at']);
+                _orgCreatedAt = "${dt.day}/${dt.month}/${dt.year}";
+              } catch (_) {
+                _orgCreatedAt = data['org_created_at'];
+              }
+            }
+
             _recentActivities = data['recent_activities'] ?? [];
+            
+            // Check if first login for banner (simplified logic using a temporary shared_pref or session flag)
+            // For now, let's just show it if data is loaded and not dismissed in this session
+            if (_orgName.isNotEmpty && _orgCode.isNotEmpty && !SessionManager.bannerDismissed) {
+              _showBanner = true;
+            }
             
             if (policyData != null) {
               _allowedOutsideMinutes = policyData['allowed_outside_minutes'];
@@ -199,6 +235,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (_showBanner) _buildFirstLoginBanner(theme, isDark),
           // Greeting & Quick Search Row
           LayoutBuilder(
             builder: (context, constraints) {
@@ -301,66 +338,84 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           const SizedBox(height: 32),
 
-          // KPI Cards Grid
-          GridView.count(
-            crossAxisCount: gridCount,
-            childAspectRatio: childAspectRatio,
-            crossAxisSpacing: 16,
-            mainAxisSpacing: 16,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            children: [
-              _buildDashboardKpiCard(
-                title: 'Present Faculty',
-                value: '$_presentCount',
-                description: 'Active presence inside campus',
-                trend: 'Live',
-                isPositive: true,
-                icon: Icons.check_circle_outlined,
-                color: AppColors.success,
-                onTap: () => context.go('/admin/faculty?status=active'),
-              ),
-              _buildDashboardKpiCard(
-                title: 'Outside Campus',
-                value: '$_outsideCount',
-                description: 'Out-of-bounds warning state',
-                trend: 'Warning',
-                isPositive: false,
-                icon: Icons.wrong_location_outlined,
-                color: AppColors.warning,
-                onTap: () => context.go('/admin/attendance'),
-              ),
-              _buildDashboardKpiCard(
-                title: 'Absent Faculty',
-                value: '$_absentCount',
-                description: 'No check-in detected today',
-                trend: 'Absent',
-                isPositive: false,
-                icon: Icons.cancel_outlined,
-                color: AppColors.danger,
-                onTap: () => context.go('/admin/attendance'),
-              ),
-              _buildDashboardKpiCard(
-                title: 'Pending Requests',
-                value: '$_pendingRequestsCount',
-                description: 'Awaiting admin approvals',
-                trend: _pendingRequestsCount > 0 ? 'Action req.' : 'Clear',
-                isPositive: _pendingRequestsCount == 0,
-                icon: Icons.pending_actions_outlined,
-                color: AppColors.info,
-                onTap: () => context.go('/admin/requests'),
-              ),
-              _buildDashboardKpiCard(
-                title: 'Total Directory',
-                value: '$_totalFacultyCount',
-                description: 'Total registered faculty members',
-                trend: 'Active',
-                isPositive: true,
-                icon: Icons.people_outline,
-                color: theme.colorScheme.primary,
-                onTap: () => context.go('/admin/faculty'),
-              ),
-            ],
+          // KPI Cards Grid — wrapped with Showcase for tour Step 1
+          Showcase.withWidget(
+            key: WalkthroughKeys.kpiGrid,
+            overlayOpacity: 0.75,
+            disableDefaultTargetGestures: true,
+            targetShapeBorder: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.all(Radius.circular(12)),
+            ),
+            targetPadding: const EdgeInsets.all(6),
+            container: const WalkthroughTooltip(
+              stepNumber: 1,
+              title: 'Live Attendance Overview',
+              body:
+                  'Your real-time command center. See who is present on campus, outside the geofence, or absent — all updated live every 10 seconds.',
+              icon: Icons.dashboard_outlined,
+              isFirstInPhase: true,
+              callToAction: 'Tap any card to navigate to that filtered view.',
+            ),
+            child: GridView.count(
+              crossAxisCount: gridCount,
+              childAspectRatio: childAspectRatio,
+              crossAxisSpacing: 16,
+              mainAxisSpacing: 16,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              children: [
+                _buildDashboardKpiCard(
+                  title: 'Present Faculty',
+                  value: '$_presentCount',
+                  description: 'Active presence inside campus',
+                  trend: 'Live',
+                  isPositive: true,
+                  icon: Icons.check_circle_outlined,
+                  color: AppColors.success,
+                  onTap: () => context.go('/admin/faculty?status=active'),
+                ),
+                _buildDashboardKpiCard(
+                  title: 'Outside Campus',
+                  value: '$_outsideCount',
+                  description: 'Out-of-bounds warning state',
+                  trend: 'Warning',
+                  isPositive: false,
+                  icon: Icons.wrong_location_outlined,
+                  color: AppColors.warning,
+                  onTap: () => context.go('/admin/attendance'),
+                ),
+                _buildDashboardKpiCard(
+                  title: 'Absent Faculty',
+                  value: '$_absentCount',
+                  description: 'No check-in detected today',
+                  trend: 'Absent',
+                  isPositive: false,
+                  icon: Icons.cancel_outlined,
+                  color: AppColors.danger,
+                  onTap: () => context.go('/admin/attendance'),
+                ),
+                _buildDashboardKpiCard(
+                  title: 'Pending Requests',
+                  value: '$_pendingRequestsCount',
+                  description: 'Awaiting admin approvals',
+                  trend: _pendingRequestsCount > 0 ? 'Action req.' : 'Clear',
+                  isPositive: _pendingRequestsCount == 0,
+                  icon: Icons.pending_actions_outlined,
+                  color: AppColors.info,
+                  onTap: () => context.go('/admin/requests'),
+                ),
+                _buildDashboardKpiCard(
+                  title: 'Total Directory',
+                  value: '$_totalFacultyCount',
+                  description: 'Total registered faculty members',
+                  trend: 'Active',
+                  isPositive: true,
+                  icon: Icons.people_outline,
+                  color: theme.colorScheme.primary,
+                  onTap: () => context.go('/admin/faculty'),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 32),
 
@@ -371,6 +426,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               final widgets = [
                 _buildActivePolicySummary(context),
                 const SizedBox(height: 24),
+                _buildOrgInfoCard(context),
+                const SizedBox(height: 24),
                 _buildActivityFeed(context),
               ];
 
@@ -378,9 +435,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ? Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(flex: 3, child: widgets[0]),
+                        Expanded(flex: 3, child: Column(
+                          children: [
+                            widgets[0],
+                            const SizedBox(height: 24),
+                            widgets[2],
+                          ],
+                        )),
                         const SizedBox(width: 24),
-                        Expanded(flex: 2, child: widgets[2]),
+                        Expanded(flex: 2, child: widgets[4]),
                       ],
                     )
                   : Column(
@@ -389,6 +452,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         widgets[0],
                         const SizedBox(height: 24),
                         widgets[2],
+                        const SizedBox(height: 24),
+                        widgets[4],
                       ],
                     );
             },
@@ -471,6 +536,141 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildFirstLoginBanner(ThemeData theme, bool isDark) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(28, 16, 28, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.primary.withOpacity(0.15)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.info_outline, size: 20, color: AppColors.primary),
+          const SizedBox(width: 16),
+          const Expanded(
+            child: Text(
+              'Your Organization Code has been emailed to you and is available below. Faculty members will need this code during registration.',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: AppColors.primary),
+            ),
+          ),
+          IconButton(
+            onPressed: () {
+              setState(() => _showBanner = false);
+              SessionManager.bannerDismissed = true;
+            },
+            icon: const Icon(Icons.close, size: 18, color: AppColors.primary),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOrgInfoCard(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.corporate_fare_outlined, size: 20, color: theme.colorScheme.primary),
+                const SizedBox(width: 12),
+                Text('Organization Information', style: AppTypography.h3),
+              ],
+            ),
+            const Divider(height: 32),
+            _buildDetailRow('Organization Name:', _orgName),
+            _buildCodeRow('Organization Code:', _orgCode),
+            _buildDetailRow('Administrator:', _adminEmail),
+            _buildDetailRow('Created Date:', _orgCreatedAt),
+            _buildStatusRow('System Status:', _orgStatus),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: AppTypography.bodyMedium.copyWith(color: Colors.grey)),
+          Text(value, style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusRow(String label, String status) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: AppTypography.bodyMedium.copyWith(color: Colors.grey)),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: AppColors.success.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              status.toUpperCase(),
+              style: const TextStyle(color: AppColors.success, fontSize: 10, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCodeRow(String label, String code) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: AppTypography.bodyMedium.copyWith(color: Colors.grey)),
+          Row(
+            children: [
+              Text(
+                code,
+                style: AppTypography.bodyLarge.copyWith(
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1,
+                  color: AppColors.primary,
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: code));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Organization Code copied successfully.'),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.copy, size: 16, color: Colors.grey),
+                tooltip: 'Copy Code',
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

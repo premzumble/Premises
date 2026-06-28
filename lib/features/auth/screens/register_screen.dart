@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/api_service.dart';
 import '../../../core/design_system/app_colors.dart';
@@ -213,13 +214,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
         otp: _otpController.text.trim(),
       );
       if (!mounted) return;
-      _showSuccessDialog(
-        title: 'Organization Created! 🎉',
-        message:
-            'Welcome to Premises!\n\nYour organization "${result['name']}" is ready.\n\n'
-            'Your Organization Code is:\n'
-            '${result['organization_code']}\n\n'
-            'Share this code with your faculty members so they can join.',
+      _showRegistrationSuccessDialog(
+        orgName: result['name'] ?? '',
+        orgCode: result['organization_code'] ?? '',
         onDone: () => context.go('/login'),
       );
     } on ApiException catch (e) {
@@ -229,6 +226,120 @@ class _RegisterScreenState extends State<RegisterScreen> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  void _showRegistrationSuccessDialog({
+    required String orgName,
+    required String orgCode,
+    required VoidCallback onDone,
+  }) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        contentPadding: EdgeInsets.zero,
+        clipBehavior: Clip.antiAlias,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(32),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.05),
+              ),
+              child: Column(
+                children: [
+                  const Icon(Icons.check_circle, size: 64, color: AppColors.success),
+                  const SizedBox(height: 24),
+                  Text(
+                    'Organization Created!',
+                    style: AppTypography.h2,
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Your workspace is ready. Faculty can now join using the code below.',
+                    style: AppTypography.caption,
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withOpacity(0.03),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: AppColors.primary.withOpacity(0.1)),
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          orgName,
+                          style: AppTypography.bodyLarge.copyWith(fontWeight: FontWeight.bold),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          orgCode,
+                          style: AppTypography.h1.copyWith(
+                            letterSpacing: 2,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    'This code has also been sent to your registered email address.',
+                    style: AppTypography.caption.copyWith(fontStyle: FontStyle.italic),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: orgCode));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Organization Code copied successfully.'),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.copy, size: 18),
+                    label: const Text('Copy Code'),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.of(ctx).pop();
+                      onDone();
+                    },
+                    child: const Text('Continue to Login'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   // -----------------------------------------------------------------------
