@@ -95,7 +95,12 @@ class FacultyService:
             raise NotFoundException("Faculty profile not found.")
 
         # Geofence details
-        gf_stmt = select(Geofence).where(Geofence.organization_id == faculty.organization_id, Geofence.is_active == True)
+        from sqlalchemy.orm import selectinload
+        gf_stmt = (
+            select(Geofence)
+            .where(Geofence.organization_id == faculty.organization_id, Geofence.is_active == True)
+            .options(selectinload(Geofence.vertices))
+        )
         gf_res = await self.db.execute(gf_stmt)
         geofence = gf_res.scalars().first()
 
@@ -117,6 +122,14 @@ class FacultyService:
                     geofence_lat = sum(v.latitude for v in geofence_vertices) / len(geofence_vertices)
                     geofence_lng = sum(v.longitude for v in geofence_vertices) / len(geofence_vertices)
                     geofence_rad = 0.0
+
+            import logging
+            logger = logging.getLogger("premises.geofence")
+            logger.warning(f"[GEOFENCE DEBUG] type={geofence_type}, lat={geofence_lat}, lng={geofence_lng}, rad={geofence_rad}")
+            logger.warning(f"[GEOFENCE DEBUG] vertices count={len(geofence_vertices) if geofence_vertices else 0}")
+            if geofence_vertices:
+                for i, v in enumerate(geofence_vertices):
+                    logger.warning(f"[GEOFENCE DEBUG]   vertex[{i}] lat={v.latitude}, lng={v.longitude}")
 
         # Policy details
         pol_stmt = select(AttendancePolicy).where(AttendancePolicy.organization_id == faculty.organization_id)

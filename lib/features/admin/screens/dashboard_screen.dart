@@ -38,6 +38,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<dynamic> _recentActivities = [];
   Timer? _refreshTimer;
 
+  Future<void> _checkBannerStatus() async {
+    final shouldShow = await SessionManager.shouldShowOrgCodeBanner();
+    if (mounted && _orgName.isNotEmpty && _orgCode.isNotEmpty) {
+      setState(() {
+        _showBanner = shouldShow;
+      });
+    }
+  }
+
   // Dynamic policy settings
   int? _allowedOutsideMinutes;
   int? _reminder1Minutes;
@@ -138,11 +147,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
             _recentActivities = data['recent_activities'] ?? [];
             
-            // Check if first login for banner (simplified logic using a temporary shared_pref or session flag)
-            // For now, let's just show it if data is loaded and not dismissed in this session
-            if (_orgName.isNotEmpty && _orgCode.isNotEmpty && !SessionManager.bannerDismissed) {
-              _showBanner = true;
-            }
+            // Check if first login for banner (persisted via SharedPreferences)
+            _checkBannerStatus();
             
             if (policyData != null) {
               _allowedOutsideMinutes = policyData['allowed_outside_minutes'];
@@ -560,9 +566,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ),
           IconButton(
-            onPressed: () {
+            onPressed: () async {
               setState(() => _showBanner = false);
-              SessionManager.bannerDismissed = true;
+              await SessionManager.setOrgCodeBannerSeen();
             },
             icon: const Icon(Icons.close, size: 18, color: AppColors.primary),
           ),

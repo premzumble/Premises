@@ -74,7 +74,10 @@ class _AdminNavigationState extends State<AdminNavigation> {
   Future<void> _checkWalkthroughStatus() async {
     final ctrl = WalkthroughController.instance;
     final isFirst = await ctrl.isFirstLogin();
-    if (isFirst && mounted) {
+    final isCompleted = await ctrl.shouldShowWalkthrough() == false;
+
+    // Show welcome dialog ONLY if it's the first login AND tour hasn't been completed/skipped yet.
+    if (isFirst && !isCompleted && mounted) {
       await ctrl.markFirstLoginSeen();
       _showWelcomeDialog();
     }
@@ -82,6 +85,8 @@ class _AdminNavigationState extends State<AdminNavigation> {
 
   void _showWelcomeDialog() {
     if (!mounted) return;
+    final isDashboard = widget.location.startsWith('/admin/dashboard');
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -89,7 +94,8 @@ class _AdminNavigationState extends State<AdminNavigation> {
       builder: (ctx) => WelcomeDialog(
         onStart: () {
           Navigator.of(ctx).pop();
-          WalkthroughController.instance.startTour();
+          WalkthroughController.instance
+              .startTour(isAlreadyOnDashboard: isDashboard);
         },
         onSkip: () {
           Navigator.of(ctx).pop();

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/api_service.dart';
+import '../../../core/session_manager.dart';
 import '../../../core/design_system/app_colors.dart';
 import '../../../core/design_system/app_sizes.dart';
 import '../../../core/design_system/app_typography.dart';
@@ -213,6 +214,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
         email: _pendingAdminEmail!,
         otp: _otpController.text.trim(),
       );
+      
+      // Trigger the organization code reminder banner on next login
+      await SessionManager.triggerOrgCodeBanner();
+
       if (!mounted) return;
       _showRegistrationSuccessDialog(
         orgName: result['name'] ?? '',

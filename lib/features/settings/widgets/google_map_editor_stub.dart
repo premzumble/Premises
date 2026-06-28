@@ -9,6 +9,7 @@ class GoogleMapEditor extends StatefulWidget {
   final String? initialVerticesJson;
   final Function(Map<String, dynamic> data) onSave;
   final VoidCallback? onChanged;
+  final Function(Map<String, dynamic> data)? onChangedData;
 
   const GoogleMapEditor({
     super.key,
@@ -20,6 +21,7 @@ class GoogleMapEditor extends StatefulWidget {
     this.initialVerticesJson,
     required this.onSave,
     this.onChanged,
+    this.onChangedData,
   });
 
   @override

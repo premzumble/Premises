@@ -124,6 +124,22 @@ class GeofenceBase(BaseModel):
                 raise ValueError("A polygon geofence must have at least 3 vertices.")
             
             points = [(v.latitude, v.longitude) for v in self.vertices]
+            
+            # Check unique points (degenerate check)
+            unique_points = []
+            for lat, lng in points:
+                if not any(abs(ul[0] - lat) < 1e-9 and abs(ul[1] - lng) < 1e-9 for ul in unique_points):
+                    unique_points.append((lat, lng))
+            if len(unique_points) < 3:
+                raise ValueError("A polygon geofence must have at least 3 unique vertices.")
+            
+            # Check consecutive duplicate vertices
+            for i in range(len(points)):
+                p1 = points[i]
+                p2 = points[(i + 1) % len(points)]
+                if abs(p1[0] - p2[0]) < 1e-9 and abs(p1[1] - p2[1]) < 1e-9:
+                    raise ValueError("Duplicate consecutive vertices are invalid.")
+            
             if _is_self_intersecting(points):
                 raise ValueError("Self-intersecting polygon boundaries are invalid. Edges cannot cross.")
                 

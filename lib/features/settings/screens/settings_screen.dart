@@ -288,8 +288,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
       payload['radius_meters'] = _savedRadiusMeters ?? 500.0;
       payload['vertices'] = null;
     } else {
-      payload['latitude'] = null;
-      payload['longitude'] = null;
+      double? centroidLat;
+      double? centroidLng;
+      if (_geofenceVertices != null && _geofenceVertices!.isNotEmpty) {
+        double latSum = 0.0;
+        double lngSum = 0.0;
+        for (final v in _geofenceVertices!) {
+          final m = Map<String, dynamic>.from(v);
+          latSum += (m['latitude'] as num).toDouble();
+          lngSum += (m['longitude'] as num).toDouble();
+        }
+        centroidLat = latSum / _geofenceVertices!.length;
+        centroidLng = lngSum / _geofenceVertices!.length;
+      }
+      payload['latitude'] = centroidLat;
+      payload['longitude'] = centroidLng;
       payload['radius_meters'] = null;
       payload['vertices'] = _geofenceVertices;
     }
@@ -1629,6 +1642,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     },
                     onChanged: () {
                       setState(() {
+                        _geofenceIsDirty = true;
+                      });
+                    },
+                    onChangedData: (Map<String, dynamic> data) {
+                      setState(() {
+                        _geofenceType = data['geofence_type'] ?? 'circle';
+                        _savedLatitude = data['latitude'] != null ? (data['latitude'] as num).toDouble() : null;
+                        _savedLongitude = data['longitude'] != null ? (data['longitude'] as num).toDouble() : null;
+                        _savedRadiusMeters = data['radius_meters'] != null ? (data['radius_meters'] as num).toDouble() : null;
+                        _geofenceVertices = data['vertices'];
                         _geofenceIsDirty = true;
                       });
                     },

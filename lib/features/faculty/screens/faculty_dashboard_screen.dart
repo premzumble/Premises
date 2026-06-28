@@ -97,6 +97,14 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
         final int rem2 = data['reminder_2_minutes'] as int? ?? 0;
         final int rem3 = data['reminder_3_minutes'] as int? ?? 0;
         final int eval = data['evaluation_minutes'] as int? ?? 15;
+
+        debugPrint('[DASHBOARD CACHE] type=$type, lat=$lat, lng=$lng, rad=$rad');
+        debugPrint('[DASHBOARD CACHE] vertices=${vertices != null ? (vertices as List).length : "null"} items');
+        debugPrint('[DASHBOARD CACHE] verticesJson=${verticesJson != null ? "${verticesJson.length} chars" : "null"}');
+        if (verticesJson != null) {
+          debugPrint('[DASHBOARD CACHE] verticesJson first 200 chars: ${verticesJson.substring(0, verticesJson.length < 200 ? verticesJson.length : 200)}');
+        }
+
         SessionManager.cacheGeofence(lat, lng, rad, type, verticesJson, allowedOutside, rem1, rem2, rem3, eval);
         LocationService.checkCurrentLocation();
 

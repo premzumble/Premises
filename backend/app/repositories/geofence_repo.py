@@ -11,7 +11,12 @@ class GeofenceRepository(BaseRepository[Geofence]):
         super().__init__(Geofence, db)
 
     async def get_active_by_org(self, organization_id: uuid.UUID) -> List[Geofence]:
-        stmt = select(Geofence).where(Geofence.organization_id == organization_id, Geofence.is_active == True)
+        from sqlalchemy.orm import selectinload
+        stmt = (
+            select(Geofence)
+            .where(Geofence.organization_id == organization_id, Geofence.is_active == True)
+            .options(selectinload(Geofence.vertices))
+        )
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 

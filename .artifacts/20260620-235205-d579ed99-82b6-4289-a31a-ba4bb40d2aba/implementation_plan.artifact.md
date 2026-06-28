@@ -1,82 +1,67 @@
-# Implementation Plan - Forgot Password & Email OTP (Updated)
+# Implementation Plan - Walkthrough Bug Fixes
 
-Complete implementation of the Forgot Password workflow and a professional Email Service with SMTP integration.
+Fix critical usability bugs in the Admin Walkthrough and Dashboard notification systems.
 
 ## User Review Required
 
-> [!IMPORTANT]
-> - The existing `OtpVerification` model will be modified to include security tracking: `purpose`, `expires_at`, `verified`, `attempt_count`, and `used_at`.
-> - Gmail SMTP requires an **App Password** to be set in `.env`.
+> [!NOTE]
+> I am introducing a new persistent flag `admin_org_code_banner_seen` to ensure the post-registration reminder only appears once.
 
 ## Proposed Changes
 
-### Backend - Core & Infrastructure
+### Core
 
-#### [config.py](file:///E:/Premises/premises/backend/app/core/config.py)
-- Add SMTP configuration settings: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`, `SMTP_FROM_NAME`.
+#### [session_manager.dart](file:///E:/Premises/premises/lib/core/session_manager.dart)
+- Remove the in-memory `_bannerDismissed` static flag.
+- Add `Future<bool> shouldShowOrgCodeBanner()` and `Future<void> setOrgCodeBannerSeen()`.
+- Add `Future<void> triggerOrgCodeBanner()` (called from registration).
 
-#### [NEW] [email_service.py](file:///E:/Premises/premises/backend/app/services/email_service.py)
-- Reusable service to send HTML emails using Jinja2 templates.
-- Support for `REGISTRATION` and `PASSWORD_RESET` templates.
-- Production-ready SMTP connection handling.
+### Auth
 
----
+#### [register_screen.dart](file:///E:/Premises/premises/lib/features/auth/screens/register_screen.dart)
+- Call `SessionManager.triggerOrgCodeBanner()` upon successful organization registration.
 
-### Backend - Database & Models
+### Admin Walkthrough
 
-#### [otp.py](file:///E:/Premises/premises/backend/app/models/otp.py)
-- Add `purpose` (String) to distinguish between registration and reset.
-- Add `expires_at` (DateTime) for fine-grained expiration control (5 minutes).
-- Add `verified` (Boolean) and `used_at` (DateTime) to prevent reuse.
-- Add `attempt_count` (Integer) to limit verification spam.
+#### [walkthrough_service.dart](file:///E:/Premises/premises/lib/features/admin/walkthrough/services/walkthrough_service.dart)
+- No changes needed here, logic is already persistent.
 
-#### [Alembic Migration]
-- Generate a new migration to update `otp_verifications` table.
+#### [walkthrough_controller.dart](file:///E:/Premises/premises/lib/features/admin/walkthrough/controller/walkthrough_controller.dart)
+- Update `startTour()` to accept a `bool isAlreadyOnDashboard` parameter.
+- If `isAlreadyOnDashboard` is true, immediately call `onDashboardReady()` logic to avoid showing the "Navigate to Dashboard" hint.
 
----
+#### [admin_navigation.dart](file:///E:/Premises/premises/lib/features/admin/layouts/admin_navigation.dart)
+- Update `_checkWalkthroughStatus()` to only show the Welcome dialog if the tour is NOT completed AND it's the first login.
+- Pass the current route status to `startTour()`.
 
-### Backend - Business Logic & API
+### Admin Dashboard
 
-#### [auth_service.py](file:///E:/Premises/premises/backend/app/services/auth_service.py)
-- Implement rate limiting (3 requests/10 mins per email).
-- Implement `initiate_password_reset(email)`: Validates user, generates OTP, sends email.
-- Implement `verify_reset_otp(email, otp)`: Validates OTP, purpose, and attempt count.
-- Implement `reset_password(email, otp, new_password)`: Verifies OTP again (safety) and updates hash with strong validation.
-- Enforce strong password policy: 8+ chars, upper, lower, digit, special.
-
-#### [auth.py](file:///E:/Premises/premises/backend/app/api/auth.py)
-- Add endpoints:
-    - `POST /auth/forgot-password`
-    - `POST /auth/verify-reset-otp`
-    - `POST /auth/reset-password`
-
-#### [NEW] [health.py](file:///E:/Premises/premises/backend/app/api/health.py)
-- Add endpoint: `GET /health/email` to verify SMTP connectivity.
-
----
-
-### Flutter - UI & Auth
-
-#### [api_service.dart](file:///E:/Premises/premises/lib/core/api_service.dart)
-- Add client methods for forgot password flow.
-
-#### Screens
-- [NEW] `forgot_password_screen.dart`
-- [NEW] `verify_reset_otp_screen.dart`
-- [NEW] `reset_password_screen.dart`
-- [NEW] `reset_success_screen.dart`
+#### [dashboard_screen.dart](file:///E:/Premises/premises/lib/features/admin/screens/dashboard_screen.dart)
+- Replace in-memory `SessionManager.bannerDismissed` check with a call to `SessionManager.shouldShowOrgCodeBanner()`.
+- Ensure the banner is dismissed persistently.
 
 ---
 
 ## Verification Plan
 
-### Automated Tests
-- `pytest` for OTP expiry, rate limiting, and password strength.
-- `flutter analyze` for frontend.
-
 ### Manual Verification
-1. **Email Health**: Check `GET /health/email` returns success.
-2. **Rate Limiting**: Request OTP 4 times within 10 mins; verify the 4th is rejected.
-3. **Template**: Verify HTML email looks professional in inbox.
-4. **Security**: Try verified OTP again; verify it fails (single-use).
-5. **Strength**: Try resetting with "123456"; verify it fails validation.
+1.  **Bug 1 (Welcome Dialog)**:
+    - Login as Admin.
+    - Dismiss the Welcome dialog (Start or Skip).
+    - Logout and Login again.
+    - Verify the dialog does NOT appear.
+    - Click Help button -> Replay Tour. Verify the dialog APPEARS.
+
+2.  **Bug 2 (Instant Start)**:
+    - Login as Admin (First time).
+    - In Welcome dialog, click **Start Tour**.
+    - Verify Phase 1 (Dashboard showcase) starts immediately without showing the "Navigate to Dashboard" hint.
+
+3.  **Bug 3 (Org Code Banner)**:
+    - Register a new Organization.
+    - Login.
+    - Verify the Org Code reminder banner appears.
+    - Dismiss the banner.
+    - Logout and Login again.
+    - Verify the banner does NOT appear.
+    - Verify normal logins (for existing orgs) NEVER show the banner.

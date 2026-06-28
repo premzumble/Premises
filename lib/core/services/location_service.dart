@@ -458,13 +458,19 @@ class LocationService {
     final String type = SessionManager.geofenceType ?? 'circle';
     final String? verticesJson = SessionManager.geofenceVerticesJson;
 
+    debugPrint('[GEOFENCE EVAL] type=$type, gfLat=$gfLat, gfLng=$gfLng, gfRad=$gfRad');
+    debugPrint('[GEOFENCE EVAL] verticesJson is ${verticesJson == null ? "NULL" : "present (${verticesJson.length} chars)"}');
+    debugPrint('[GEOFENCE EVAL] Faculty position: ($lat, $lng)');
+
     if (gfLat == null || gfLng == null || gfRad == null) {
+      debugPrint('[GEOFENCE EVAL] BAIL: null lat/lng/rad');
       return GeofenceEvaluation(false, double.infinity);
     }
 
     if (type == 'polygon' && verticesJson != null) {
       try {
         final List<dynamic> decoded = json.decode(verticesJson);
+        debugPrint('[GEOFENCE EVAL] Decoded ${decoded.length} vertices from JSON');
         final List<Map<String, double>> vertices = decoded.map((item) {
           final Map<String, dynamic> m = item as Map<String, dynamic>;
           return {
@@ -473,26 +479,74 @@ class LocationService {
           };
         }).toList();
 
+        debugPrint('[GEOFENCE EVAL] Parsed ${vertices.length} polygon vertices:');
+        for (int i = 0; i < vertices.length; i++) {
+          debugPrint('[GEOFENCE EVAL]   vertex[$i] = (${vertices[i]['lat']}, ${vertices[i]['lng']})');
+        }
+
         if (vertices.length >= 3) {
           final bool isInside = _checkPointInPolygon(lat, lng, vertices);
           final double distance = isInside ? 0.0 : _distanceToPolygonMeters(lat, lng, vertices);
+          debugPrint('[GEOFENCE EVAL] Polygon result: inside=$isInside, distance=$distance');
           return GeofenceEvaluation(isInside, distance);
+        } else {
+          debugPrint('[GEOFENCE EVAL] WARN: fewer than 3 vertices, falling through to circle');
         }
       } catch (e) {
         debugPrint('[LocationService] Error evaluating polygon geofence: $e');
       }
+    } else {
+      debugPrint('[GEOFENCE EVAL] Not taking polygon path: type=$type, verticesJson=${verticesJson == null ? "null" : "present"}');
     }
 
     // Default to circle distance check
     final double distance = Geolocator.distanceBetween(lat, lng, gfLat, gfLng);
+    debugPrint('[GEOFENCE EVAL] Circle fallback: distance=$distance, radius=$gfRad, inside=${distance <= gfRad}');
     return GeofenceEvaluation(distance <= gfRad, distance);
+  }
+
+  static bool _isOnVertexOrEdge(double lat, double lng, List<Map<String, double>> vertices, {double epsilon = 1e-9}) {
+    // Check vertices
+    for (final v in vertices) {
+      if ((v['lat']! - lat).abs() < epsilon && (v['lng']! - lng).abs() < epsilon) {
+        return true;
+      }
+    }
+    // Check edges
+    int n = vertices.length;
+    for (int i = 0; i < n; i++) {
+      final p1 = vertices[i];
+      final p2 = vertices[(i + 1) % n];
+      
+      final p1Lat = p1['lat']!;
+      final p1Lng = p1['lng']!;
+      final p2Lat = p2['lat']!;
+      final p2Lng = p2['lng']!;
+      
+      final crossProduct = (lat - p1Lat) * (p2Lng - p1Lng) - (lng - p1Lng) * (p2Lat - p1Lat);
+      if (crossProduct.abs() < epsilon) {
+        final dotProduct = (lat - p1Lat) * (p2Lat - p1Lat) + (lng - p1Lng) * (p2Lng - p1Lng);
+        if (dotProduct >= 0) {
+          final abLenSq = math.pow(p2Lat - p1Lat, 2) + math.pow(p2Lng - p1Lng, 2);
+          if (dotProduct <= abLenSq) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
   }
 
   static bool _checkPointInPolygon(double lat, double lng, List<Map<String, double>> vertices) {
     int numVertices = vertices.length;
-    bool inside = false;
     if (numVertices < 3) return false;
     
+    // Treat points exactly on vertices or edges as inside
+    if (_isOnVertexOrEdge(lat, lng, vertices)) {
+      return true;
+    }
+    
+    bool inside = false;
     double p1x = vertices[0]['lat']!;
     double p1y = vertices[0]['lng']!;
     

@@ -15,6 +15,7 @@ class GoogleMapEditor extends StatefulWidget {
   final String? initialVerticesJson;
   final Function(Map<String, dynamic> data) onSave;
   final VoidCallback? onChanged;
+  final Function(Map<String, dynamic> data)? onChangedData;
 
   const GoogleMapEditor({
     super.key,
@@ -26,6 +27,7 @@ class GoogleMapEditor extends StatefulWidget {
     this.initialVerticesJson,
     required this.onSave,
     this.onChanged,
+    this.onChangedData,
   });
 
   @override
@@ -62,6 +64,88 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
     }
   }
 
+  @override
+  void didUpdateWidget(covariant GoogleMapEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialLatitude != widget.initialLatitude ||
+        oldWidget.initialLongitude != widget.initialLongitude ||
+        oldWidget.initialRadius != widget.initialRadius ||
+        oldWidget.initialType != widget.initialType ||
+        oldWidget.initialVerticesJson != widget.initialVerticesJson) {
+      setState(() {
+        _activeMode = widget.initialType;
+        _circleCenter = LatLng(widget.initialLatitude, widget.initialLongitude);
+        _circleRadius = widget.initialRadius;
+
+        if (widget.initialVerticesJson != null) {
+          try {
+            final List<dynamic> parsed = json.decode(widget.initialVerticesJson!);
+            _polygonVertices = parsed
+                .map((v) => LatLng((v['latitude'] as num).toDouble(), (v['longitude'] as num).toDouble()))
+                .toList();
+          } catch (_) {
+            _polygonVertices.clear();
+          }
+        } else {
+          _polygonVertices.clear();
+        }
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        try {
+          _mapController.move(_circleCenter, 15.0);
+        } catch (_) {}
+      });
+    }
+  }
+
+  void _notifyChanged() {
+    LatLng centroid = _circleCenter;
+    if (_activeMode == 'polygon' && _polygonVertices.isNotEmpty) {
+      double latSum = 0;
+      double lngSum = 0;
+      for (final v in _polygonVertices) {
+        latSum += v.latitude;
+        lngSum += v.longitude;
+      }
+      centroid = LatLng(latSum / _polygonVertices.length, lngSum / _polygonVertices.length);
+    }
+
+    final data = {
+      'geofence_type': _activeMode,
+      'latitude': _activeMode == 'circle' ? _circleCenter.latitude : centroid.latitude,
+      'longitude': _activeMode == 'circle' ? _circleCenter.longitude : centroid.longitude,
+      'radius_meters': _circleRadius,
+      'vertices': _polygonVertices.map((v) => {'latitude': v.latitude, 'longitude': v.longitude}).toList(),
+    };
+
+    if (widget.onChangedData != null) {
+      widget.onChangedData!(data);
+    }
+    if (widget.onChanged != null) {
+      widget.onChanged!();
+    }
+  }
+
+  void _setMode(String mode) {
+    if (_activeMode == mode) return;
+    _saveHistoryState();
+    setState(() {
+      _activeMode = mode;
+      
+      // Auto-recenter default polygon bounds if it's empty
+      if (mode == 'polygon' && _polygonVertices.isEmpty) {
+        final double offset = 0.001;
+        _polygonVertices = [
+          LatLng(_circleCenter.latitude - offset, _circleCenter.longitude - offset),
+          LatLng(_circleCenter.latitude + offset, _circleCenter.longitude - offset),
+          LatLng(_circleCenter.latitude + offset, _circleCenter.longitude + offset),
+          LatLng(_circleCenter.latitude - offset, _circleCenter.longitude + offset),
+        ];
+      }
+    });
+    _notifyChanged();
+  }
+
   void _saveHistoryState() {
     final state = {
       'mode': _activeMode,
@@ -76,7 +160,7 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
     }
     _redoStack.clear();
     setState(() {});
-    if (widget.onChanged != null) widget.onChanged!();
+    _notifyChanged();
   }
 
   void _undo() {
@@ -98,7 +182,7 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
       final List<dynamic> verts = prevState['vertices'];
       _polygonVertices = verts.map((v) => LatLng(v['lat'], v['lng'])).toList();
     });
-    if (widget.onChanged != null) widget.onChanged!();
+    _notifyChanged();
   }
 
   void _redo() {
@@ -120,7 +204,7 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
       final List<dynamic> verts = nextState['vertices'];
       _polygonVertices = verts.map((v) => LatLng(v['lat'], v['lng'])).toList();
     });
-    if (widget.onChanged != null) widget.onChanged!();
+    _notifyChanged();
   }
 
   double _calculatePolygonArea() {
@@ -181,6 +265,7 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
         _polygonVertices.add(point);
       });
     }
+    _notifyChanged();
   }
 
   void _removeVertex(int index) {
@@ -188,6 +273,7 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
     setState(() {
       _polygonVertices.removeAt(index);
     });
+    _notifyChanged();
   }
 
   void _clearShape() {
@@ -199,6 +285,7 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
         _polygonVertices.clear();
       }
     });
+    _notifyChanged();
   }
 
   void _centerMap() {
@@ -308,10 +395,7 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
               children: [
                 Expanded(
                   child: GestureDetector(
-                    onTap: () {
-                      _saveHistoryState();
-                      setState(() => _activeMode = 'circle');
-                    },
+                    onTap: () => _setMode('circle'),
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 6),
                       decoration: BoxDecoration(
@@ -325,10 +409,7 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
                 ),
                 Expanded(
                   child: GestureDetector(
-                    onTap: () {
-                      _saveHistoryState();
-                      setState(() => _activeMode = 'polygon');
-                    },
+                    onTap: () => _setMode('polygon'),
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 6),
                       decoration: BoxDecoration(

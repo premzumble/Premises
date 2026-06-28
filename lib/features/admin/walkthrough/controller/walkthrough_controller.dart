@@ -110,19 +110,29 @@ class WalkthroughController {
 
   // ─── Tour Lifecycle ───────────────────────────────────────────────────────
 
-  /// Starts the tour. Sets [pendingDashboard] phase and shows a navigation
-  /// hint if the user is not yet on the Dashboard page. DashboardScreen calls
-  /// [onDashboardReady] in its post-frame callback to launch Phase 1.
-  void startTour() {
-    _phase = TourPhase.pendingDashboard;
+  /// Starts the tour. Sets [pendingDashboard] phase.
+  ///
+  /// If [isAlreadyOnDashboard] is true, it immediately transitions to [dashboardIntro]
+  /// and starts the showcase, avoiding the "Navigate to Dashboard" guidance hint.
+  void startTour({bool isAlreadyOnDashboard = false}) {
     _isSkipping = false;
     isActive.value = true;
     showNavigationHint.value = false;
     showCompletionCelebration.value = false;
-    // Show guidance hint; Dashboard dismisses it when it's ready.
-    hintMessage.value =
-        'Navigate to the Dashboard to begin your tour.';
-    showNavigationHint.value = true;
+
+    if (isAlreadyOnDashboard) {
+      _phase = TourPhase.dashboardIntro;
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (_innerContext != null && _innerContext!.mounted) {
+          ShowCaseWidget.of(_innerContext!)
+              .startShowCase(WalkthroughTourData.phase1Keys);
+        }
+      });
+    } else {
+      _phase = TourPhase.pendingDashboard;
+      hintMessage.value = 'Navigate to the Dashboard to begin your tour.';
+      showNavigationHint.value = true;
+    }
   }
 
   /// Marks the tour as permanently declined (skip on welcome dialog).

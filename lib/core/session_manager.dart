@@ -90,6 +90,18 @@ class SessionManager {
     _email = prefs.getString(_keyEmail);
     _fullName = prefs.getString(_keyFullName);
     _organizationId = prefs.getString(_keyOrgId);
+
+    // Restore geofence cache
+    _geofenceLatitude = prefs.getDouble('session_geofence_latitude');
+    _geofenceLongitude = prefs.getDouble('session_geofence_longitude');
+    _geofenceRadius = prefs.getDouble('session_geofence_radius');
+    _geofenceType = prefs.getString('session_geofence_type');
+    _geofenceVerticesJson = prefs.getString('session_geofence_vertices_json');
+    _allowedOutsideMinutes = prefs.getInt('session_allowed_outside_minutes');
+    _reminder1Minutes = prefs.getInt('session_reminder_1_minutes');
+    _reminder2Minutes = prefs.getInt('session_reminder_2_minutes');
+    _reminder3Minutes = prefs.getInt('session_reminder_3_minutes');
+    _evaluationMinutes = prefs.getInt('session_evaluation_minutes');
   }
 
   // -----------------------------------------------------------------------
@@ -157,6 +169,17 @@ class SessionManager {
     await prefs.remove(_keyEmail);
     await prefs.remove(_keyFullName);
     await prefs.remove(_keyOrgId);
+    
+    await prefs.remove('session_geofence_latitude');
+    await prefs.remove('session_geofence_longitude');
+    await prefs.remove('session_geofence_radius');
+    await prefs.remove('session_geofence_type');
+    await prefs.remove('session_geofence_vertices_json');
+    await prefs.remove('session_allowed_outside_minutes');
+    await prefs.remove('session_reminder_1_minutes');
+    await prefs.remove('session_reminder_2_minutes');
+    await prefs.remove('session_reminder_3_minutes');
+    await prefs.remove('session_evaluation_minutes');
   }
 
   // Geofence cache
@@ -199,20 +222,56 @@ class SessionManager {
     _geofenceRadius = rad;
     _geofenceType = type;
     _geofenceVerticesJson = verticesJson;
-    if (allowedOutside != null) {
-      _allowedOutsideMinutes = allowedOutside;
-    }
+    if (allowedOutside != null) _allowedOutsideMinutes = allowedOutside;
     if (reminder1 != null) _reminder1Minutes = reminder1;
     if (reminder2 != null) _reminder2Minutes = reminder2;
     if (reminder3 != null) _reminder3Minutes = reminder3;
     if (evaluation != null) _evaluationMinutes = evaluation;
+
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.setDouble('session_geofence_latitude', lat);
+      prefs.setDouble('session_geofence_longitude', lng);
+      prefs.setDouble('session_geofence_radius', rad);
+      prefs.setString('session_geofence_type', type);
+      if (verticesJson != null) {
+        prefs.setString('session_geofence_vertices_json', verticesJson);
+      } else {
+        prefs.remove('session_geofence_vertices_json');
+      }
+      if (allowedOutside != null) {
+        prefs.setInt('session_allowed_outside_minutes', allowedOutside);
+      }
+      if (reminder1 != null) prefs.setInt('session_reminder_1_minutes', reminder1);
+      if (reminder2 != null) prefs.setInt('session_reminder_2_minutes', reminder2);
+      if (reminder3 != null) prefs.setInt('session_reminder_3_minutes', reminder3);
+      if (evaluation != null) prefs.setInt('session_evaluation_minutes', evaluation);
+    });
   }
 
   // Global unread notifications notifier
   static final ValueNotifier<int> unreadNotifications = ValueNotifier<int>(0);
 
-  // UI State cache
-  static bool _bannerDismissed = false;
-  static bool get bannerDismissed => _bannerDismissed;
-  static set bannerDismissed(bool val) => _bannerDismissed = val;
+  // -----------------------------------------------------------------------
+  // UI State Persistence (Banners & Walkthroughs)
+  // -----------------------------------------------------------------------
+
+  static const _keyOrgCodeBannerTriggered = 'ui_org_code_banner_triggered';
+
+  /// Returns [true] if the post-registration organization code banner should be shown.
+  static Future<bool> shouldShowOrgCodeBanner() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_keyOrgCodeBannerTriggered) ?? false;
+  }
+
+  /// Sets the flag to show the banner (called only once after successful registration).
+  static Future<void> triggerOrgCodeBanner() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyOrgCodeBannerTriggered, true);
+  }
+
+  /// Permanently dismisses the organization code banner.
+  static Future<void> setOrgCodeBannerSeen() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyOrgCodeBannerTriggered, false);
+  }
 }

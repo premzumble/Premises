@@ -40,10 +40,35 @@ class AttendanceService:
         return R * c
 
     @staticmethod
+    def _is_on_vertex_or_edge(lat: float, lng: float, polygon: List[Tuple[float, float]], epsilon: float = 1e-9) -> bool:
+        # Check vertices
+        for v_lat, v_lng in polygon:
+            if abs(v_lat - lat) < epsilon and abs(v_lng - lng) < epsilon:
+                return True
+        # Check edges
+        n = len(polygon)
+        for i in range(n):
+            p1_lat, p1_lng = polygon[i]
+            p2_lat, p2_lng = polygon[(i + 1) % n]
+            cross_product = (lat - p1_lat) * (p2_lng - p1_lng) - (lng - p1_lng) * (p2_lat - p1_lat)
+            if abs(cross_product) < epsilon:
+                dot_product = (lat - p1_lat) * (p2_lat - p1_lat) + (lng - p1_lng) * (p2_lng - p1_lng)
+                if dot_product >= 0:
+                    ab_len_sq = (p2_lat - p1_lat) ** 2 + (p2_lng - p1_lng) ** 2
+                    if dot_product <= ab_len_sq:
+                        return True
+        return False
+
+    @staticmethod
     def _is_point_in_polygon(lat: float, lng: float, polygon: List[Tuple[float, float]]) -> bool:
         num_vertices = len(polygon)
         if num_vertices < 3:
             return False
+            
+        # Treat points exactly on vertices or edges as inside
+        if AttendanceService._is_on_vertex_or_edge(lat, lng, polygon):
+            return True
+            
         inside = False
         p1lat, p1lng = polygon[0]
         for i in range(1, num_vertices + 1):
@@ -98,14 +123,18 @@ class AttendanceService:
         return min_dist
 
     async def check_geofence_status(self, organization_id: uuid.UUID, lat: float, lng: float) -> Tuple[bool, float, Optional[Geofence]]:
+        import logging
+        logger = logging.getLogger("premises.geofence")
         geofences = await self.geofence_repo.get_active_by_org(organization_id)
         if not geofences:
+            logger.warning(f"[ATTENDANCE DEBUG] No active geofences for org={organization_id}")
             return True, 0.0, None # If no geofences defined, default to inside for safety
 
         inside_geofences = []
         outside_distances = []
 
         for gf in geofences:
+            logger.warning(f"[ATTENDANCE DEBUG] Evaluating geofence id={gf.id}, type={gf.geofence_type}, vertices_count={len(gf.vertices) if gf.vertices else 0}")
             if gf.geofence_type == "circle":
                 # Ensure we have valid circle values
                 gf_lat = gf.latitude if gf.latitude is not None else 0.0
@@ -113,19 +142,25 @@ class AttendanceService:
                 gf_rad = gf.radius_meters if gf.radius_meters is not None else 0.0
                 
                 dist = self.calculate_haversine_distance(lat, lng, gf_lat, gf_lng)
+                logger.warning(f"[ATTENDANCE DEBUG] Circle check: center=({gf_lat},{gf_lng}), radius={gf_rad}, distance={dist}, inside={dist <= gf_rad}")
                 if dist <= gf_rad:
                     inside_geofences.append((dist, gf))
                 else:
                     outside_distances.append((dist, gf))
             elif gf.geofence_type == "polygon" and gf.vertices:
                 poly_points = [(v.latitude, v.longitude) for v in gf.vertices]
+                logger.warning(f"[ATTENDANCE DEBUG] Polygon check: {len(poly_points)} vertices, faculty=({lat},{lng})")
+                for idx, pt in enumerate(poly_points):
+                    logger.warning(f"[ATTENDANCE DEBUG]   poly[{idx}] = ({pt[0]}, {pt[1]})")
                 is_inside = self._is_point_in_polygon(lat, lng, poly_points)
+                logger.warning(f"[ATTENDANCE DEBUG] Polygon result: inside={is_inside}")
                 if is_inside:
                     inside_geofences.append((0.0, gf))
                 else:
                     dist = self._distance_point_to_polygon_meters(lat, lng, poly_points)
                     outside_distances.append((dist, gf))
             else:
+                logger.warning(f"[ATTENDANCE DEBUG] Fallback/empty geofence: type={gf.geofence_type}, has_vertices={bool(gf.vertices)}")
                 # Fallback / active but empty geofence is treated as outside
                 outside_distances.append((float("inf"), gf))
 
@@ -133,14 +168,17 @@ class AttendanceService:
             # If inside any, return the closest matching inside geofence
             inside_geofences.sort(key=lambda x: x[0])
             closest_inside = inside_geofences[0]
+            logger.warning(f"[ATTENDANCE DEBUG] RESULT: INSIDE geofence id={closest_inside[1].id}")
             return True, closest_inside[0], closest_inside[1]
 
         if outside_distances:
             # If outside all, return the closest outside geofence
             outside_distances.sort(key=lambda x: x[0])
             closest_outside = outside_distances[0]
+            logger.warning(f"[ATTENDANCE DEBUG] RESULT: OUTSIDE geofence id={closest_outside[1].id}, distance={closest_outside[0]}")
             return False, closest_outside[0], closest_outside[1]
 
+        logger.warning(f"[ATTENDANCE DEBUG] RESULT: OUTSIDE, no geofences matched")
         return False, float("inf"), None
 
     def get_evaluated_status(self, record: AttendanceRecord, policy: AttendancePolicy) -> str:

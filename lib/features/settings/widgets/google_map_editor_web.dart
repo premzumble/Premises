@@ -13,6 +13,7 @@ class GoogleMapEditor extends StatefulWidget {
   final String? initialVerticesJson;
   final Function(Map<String, dynamic> data) onSave;
   final VoidCallback? onChanged;
+  final Function(Map<String, dynamic> data)? onChangedData;
 
   const GoogleMapEditor({
     super.key,
@@ -24,6 +25,7 @@ class GoogleMapEditor extends StatefulWidget {
     this.initialVerticesJson,
     required this.onSave,
     this.onChanged,
+    this.onChangedData,
   });
 
   @override
@@ -48,6 +50,7 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
         print('[GoogleMapEditorWeb] registerViewFactory callback. Generating srcdoc for IFrame.');
         final htmlContent = _buildHtmlTemplate();
         final iframe = html.IFrameElement()
+          ..id = _viewId
           ..style.border = 'none'
           ..style.width = '100%'
           ..style.height = '100%'
@@ -64,6 +67,9 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
           if (payload['type'] == 'SAVE_GEOFENCE') {
             widget.onSave(Map<String, dynamic>.from(payload['data']));
           } else if (payload['type'] == 'GEOFENCE_CHANGED') {
+            if (widget.onChangedData != null && payload['data'] != null) {
+              widget.onChangedData!(Map<String, dynamic>.from(payload['data']));
+            }
             if (widget.onChanged != null) {
               widget.onChanged!();
             }
@@ -73,6 +79,29 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
         // Ignore non-json or unrelated messages
       }
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant GoogleMapEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialLatitude != widget.initialLatitude ||
+        oldWidget.initialLongitude != widget.initialLongitude ||
+        oldWidget.initialRadius != widget.initialRadius ||
+        oldWidget.initialType != widget.initialType) {
+      // Find IFrame in the DOM and post the SET_LOCATION message
+      final iframe = html.document.getElementById(_viewId) as html.IFrameElement?;
+      if (iframe != null) {
+        iframe.contentWindow?.postMessage(
+          json.encode({
+            'type': 'SET_LOCATION',
+            'latitude': widget.initialLatitude,
+            'longitude': widget.initialLongitude,
+            'radius': widget.initialRadius,
+          }),
+          '*',
+        );
+      }
+    }
   }
 
   @override
@@ -854,6 +883,7 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
     let activeMode = "${widget.initialType}";
     let isDrawing = false;
     let hoverLine = null;
+    let isPolygonCustomized = false;
 
     // Circle config state
     let centerMarker;
@@ -874,6 +904,7 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
       const initVerts = JSON.parse("${verticesJsonEscaped}");
       if (initVerts && initVerts.length > 0) {
         polygonVertices = initVerts.map(v => ({ lat: v.latitude, lng: v.longitude }));
+        isPolygonCustomized = true;
       }
     } catch (e) {
       console.error("Error parsing initial vertices", e);
@@ -909,6 +940,7 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
         center: initialCenter,
         zoom: 15,
         mapTypeId: 'roadmap',
+        disableDoubleClickZoom: true,
         mapTypeControl: true,
         mapTypeControlOptions: {
           style: google.maps.MapTypeControlStyle.HORIZONTAL_BAR,
@@ -956,6 +988,20 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
         if (activeMode === 'polygon' && isDrawing) {
           saveHistoryState();
           const clickedLoc = e.latLng.toJSON();
+          
+          // Check if close to first vertex to close path (within 15 meters)
+          if (polygonVertices.length >= 3 && google.maps.geometry) {
+            const first = polygonVertices[0];
+            const dist = google.maps.geometry.spherical.computeDistanceBetween(
+              e.latLng, 
+              new google.maps.LatLng(first.lat, first.lng)
+            );
+            if (dist < 15) {
+              completeDrawing();
+              return;
+            }
+          }
+          
           polygonVertices.push(clickedLoc);
           drawActivePolygon();
           updateUI();
@@ -980,20 +1026,100 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
         }
       });
 
-      // Double click to close polygon path
+      // Double click listener to complete drawing or relocate/translate active shape
       map.addListener('dblclick', function(e) {
         if (activeMode === 'polygon' && isDrawing) {
-          isDrawing = false;
-          if (hoverLine) {
-            hoverLine.setMap(null);
-            hoverLine = null;
-          }
-          
           if (polygonVertices.length >= 3) {
-            mapPolygon.setPath(polygonVertices);
-            mapPolygon.setMap(map);
+            completeDrawing();
           }
-          updateUI();
+          return;
+        }
+
+        saveHistoryState();
+        const clickedLoc = e.latLng.toJSON();
+        if (activeMode === 'circle') {
+          circleCenter = clickedLoc;
+          centerMarker.setPosition(circleCenter);
+          mapCircle.setCenter(circleCenter);
+          
+          // Re-center default polygon if not customized
+          if (!isPolygonCustomized) {
+            const offset = 0.001;
+            polygonVertices = [
+              { lat: circleCenter.lat - offset, lng: circleCenter.lng - offset },
+              { lat: circleCenter.lat + offset, lng: circleCenter.lng - offset },
+              { lat: circleCenter.lat + offset, lng: circleCenter.lng + offset },
+              { lat: circleCenter.lat - offset, lng: circleCenter.lng - offset }
+            ];
+            mapPolygon.setPath(polygonVertices);
+          }
+        } else {
+          // Translate polygon vertices around the double-clicked centroid
+          if (polygonVertices.length > 0) {
+            const centroid = calculateCentroid(polygonVertices);
+            const dLat = clickedLoc.lat - centroid.lat;
+            const dLng = clickedLoc.lng - centroid.lng;
+            polygonVertices = polygonVertices.map(v => ({
+              lat: v.lat + dLat,
+              lng: v.lng + dLng
+            }));
+            mapPolygon.setPath(polygonVertices);
+          }
+        }
+        updateUI();
+        notifyChanged();
+      });
+
+      // Listen to postMessage location updates from parent Flutter widget
+      window.addEventListener('message', function(event) {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload && payload.type === 'SET_LOCATION') {
+            const lat = payload.latitude;
+            const lng = payload.longitude;
+            const rad = payload.radius;
+            const loc = { lat: lat, lng: lng };
+
+            map.setCenter(loc);
+            map.setZoom(16);
+
+            saveHistoryState();
+
+            if (activeMode === 'circle') {
+              circleCenter = loc;
+              circleRadius = rad;
+              centerMarker.setPosition(circleCenter);
+              mapCircle.setCenter(circleCenter);
+              mapCircle.setRadius(circleRadius);
+            } else {
+              // Place default polygon bounds around searched coordinate
+              const offset = 0.001;
+              polygonVertices = [
+                { lat: loc.lat - offset, lng: loc.lng - offset },
+                { lat: loc.lat + offset, lng: loc.lng - offset },
+                { lat: loc.lat + offset, lng: loc.lng + offset },
+                { lat: loc.lat - offset, lng: loc.lng - offset }
+              ];
+              isDrawing = false;
+              mapPolygon.setOptions({
+                clickable: true,
+                editable: true,
+                draggable: true
+              });
+              mapPolygon.setPath(polygonVertices);
+              mapPolygon.setMap(map);
+              isPolygonCustomized = true;
+
+              // Also sync circle
+              circleCenter = loc;
+              centerMarker.setPosition(circleCenter);
+              mapCircle.setCenter(circleCenter);
+            }
+            updateUI();
+            notifyChanged();
+          }
+        } catch (err) {
+          // Ignore non-json messages
         }
       });
 
@@ -1035,6 +1161,19 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
         saveHistoryState();
         circleCenter = centerMarker.getPosition().toJSON();
         mapCircle.setCenter(circleCenter);
+        
+        // Re-center default polygon if not customized
+        if (!isPolygonCustomized) {
+          const offset = 0.001;
+          polygonVertices = [
+            { lat: circleCenter.lat - offset, lng: circleCenter.lng - offset },
+            { lat: circleCenter.lat + offset, lng: circleCenter.lng - offset },
+            { lat: circleCenter.lat + offset, lng: circleCenter.lng + offset },
+            { lat: circleCenter.lat - offset, lng: circleCenter.lng + offset }
+          ];
+          mapPolygon.setPath(polygonVertices);
+        }
+        
         updateUI();
         notifyChanged();
       });
@@ -1042,6 +1181,19 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
       mapCircle.addListener('center_changed', () => {
         circleCenter = mapCircle.getCenter().toJSON();
         centerMarker.setPosition(circleCenter);
+        
+        // Re-center default polygon if not customized
+        if (!isPolygonCustomized) {
+          const offset = 0.001;
+          polygonVertices = [
+            { lat: circleCenter.lat - offset, lng: circleCenter.lng - offset },
+            { lat: circleCenter.lat + offset, lng: circleCenter.lng - offset },
+            { lat: circleCenter.lat + offset, lng: circleCenter.lng + offset },
+            { lat: circleCenter.lat - offset, lng: circleCenter.lng + offset }
+          ];
+          mapPolygon.setPath(polygonVertices);
+        }
+        
         updateUI();
         notifyChanged();
       });
@@ -1057,8 +1209,9 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
       mapPolygon = new google.maps.Polygon({
         paths: polygonVertices,
         map: null,
-        editable: true,
-        draggable: true,
+        editable: !isDrawing,
+        draggable: !isDrawing,
+        clickable: !isDrawing,
         fillColor: '#10b981',
         fillOpacity: 0.12,
         strokeColor: '#10b981',
@@ -1073,6 +1226,7 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
         for (let i = 0; i < path.getLength(); i++) {
           polygonVertices.push(path.getAt(i).toJSON());
         }
+        isPolygonCustomized = true;
         updateUI();
         notifyChanged();
       };
@@ -1106,6 +1260,46 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
       }
     }
 
+    function removeDuplicateVertices(verts) {
+      const clean = [];
+      for (const v of verts) {
+        if (clean.length === 0) {
+          clean.push(v);
+        } else {
+          const last = clean[clean.length - 1];
+          if (Math.abs(last.lat - v.lat) > 1e-7 || Math.abs(last.lng - v.lng) > 1e-7) {
+            clean.push(v);
+          }
+        }
+      }
+      if (clean.length > 1) {
+        const first = clean[0];
+        const last = clean[clean.length - 1];
+        if (Math.abs(first.lat - last.lat) < 1e-7 && Math.abs(first.lng - last.lng) < 1e-7) {
+          clean.pop();
+        }
+      }
+      return clean;
+    }
+
+    function completeDrawing() {
+      isDrawing = false;
+      if (hoverLine) {
+        hoverLine.setMap(null);
+        hoverLine = null;
+      }
+      polygonVertices = removeDuplicateVertices(polygonVertices);
+      mapPolygon.setOptions({
+        clickable: true,
+        editable: true,
+        draggable: true
+      });
+      mapPolygon.setPath(polygonVertices);
+      mapPolygon.setMap(map);
+      isPolygonCustomized = true;
+      updateUI();
+    }
+
     function onPlaceSelected() {
       const place = autocomplete.getPlace();
       if (!place.geometry || !place.geometry.location) {
@@ -1122,9 +1316,22 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
         circleCenter = loc.toJSON();
         centerMarker.setPosition(circleCenter);
         mapCircle.setCenter(circleCenter);
+
+        // Relocate default polygon centroid too if not customized
+        if (!isPolygonCustomized) {
+          const offset = 0.001;
+          const newC = loc.toJSON();
+          polygonVertices = [
+            { lat: newC.lat - offset, lng: newC.lng - offset },
+            { lat: newC.lat + offset, lng: newC.lng - offset },
+            { lat: newC.lat + offset, lng: newC.lng + offset },
+            { lat: newC.lat - offset, lng: newC.lng + offset }
+          ];
+          mapPolygon.setPath(polygonVertices);
+        }
       } else {
         // Place default polygon bounds around searched coordinate
-        const offset = 0.002;
+        const offset = 0.001;
         const newC = loc.toJSON();
         polygonVertices = [
           { lat: newC.lat - offset, lng: newC.lng - offset },
@@ -1133,8 +1340,19 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
           { lat: newC.lat - offset, lng: newC.lng + offset }
         ];
         isDrawing = false;
+        mapPolygon.setOptions({
+          clickable: true,
+          editable: true,
+          draggable: true
+        });
         mapPolygon.setPath(polygonVertices);
         mapPolygon.setMap(map);
+        isPolygonCustomized = true;
+
+        // Sync circle too
+        circleCenter = newC;
+        centerMarker.setPosition(circleCenter);
+        mapCircle.setCenter(circleCenter);
       }
       
       updateUI();
@@ -1183,14 +1401,25 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
         
         if (polygonVertices.length === 0) {
           isDrawing = true;
+          mapPolygon.setOptions({
+            clickable: false,
+            editable: false,
+            draggable: false
+          });
         } else {
           isDrawing = false;
+          mapPolygon.setOptions({
+            clickable: true,
+            editable: true,
+            draggable: true
+          });
           mapPolygon.setPath(polygonVertices);
           mapPolygon.setMap(map);
         }
       }
 
       updateUI();
+      notifyChanged();
       
       document.getElementById('step-2').className = 'step completed';
       document.getElementById('step-3').classList.add('active');
@@ -1249,8 +1478,32 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
           document.getElementById('stat-area').innerText = formatArea(area);
           document.getElementById('stat-perimeter').innerText = Math.round(perimeter) + " m";
 
-          // Validations
-          if (isSelfIntersecting(polygonVertices)) {
+          // Check consecutive duplicates & degenerate
+          let hasDuplicates = false;
+          for (let i = 0; i < polygonVertices.length; i++) {
+            let p1 = polygonVertices[i];
+            let p2 = polygonVertices[(i + 1) % polygonVertices.length];
+            if (Math.abs(p1.lat - p2.lat) < 1e-9 && Math.abs(p1.lng - p2.lng) < 1e-9) {
+              hasDuplicates = true;
+              break;
+            }
+          }
+          let uniquePoints = [];
+          for (let p of polygonVertices) {
+            if (!uniquePoints.some(up => Math.abs(up.lat - p.lat) < 1e-9 && Math.abs(up.lng - p.lng) < 1e-9)) {
+              uniquePoints.push(p);
+            }
+          }
+
+          if (uniquePoints.length < 3) {
+            alertBox.innerText = "Invalid Boundary: Polygon must have at least 3 unique vertices.";
+            alertBox.style.display = 'block';
+            saveBtn.disabled = true;
+          } else if (hasDuplicates) {
+            alertBox.innerText = "Invalid Boundary: Duplicate consecutive vertices detected.";
+            alertBox.style.display = 'block';
+            saveBtn.disabled = true;
+          } else if (isSelfIntersecting(polygonVertices)) {
             alertBox.innerText = "Invalid Boundary: Self-intersecting edges detected. Adjust vertices to resolve crossings.";
             alertBox.style.display = 'block';
             saveBtn.disabled = true;
@@ -1496,9 +1749,17 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
 
     // Notify Flutter parent widget of dirty changes status
     function notifyChanged() {
+      const centroid = calculateCentroid(polygonVertices);
+      const data = {
+        geofence_type: activeMode,
+        latitude: activeMode === 'circle' ? circleCenter.lat : centroid.lat,
+        longitude: activeMode === 'circle' ? circleCenter.lng : centroid.lng,
+        radius_meters: circleRadius,
+        vertices: polygonVertices.map(v => ({ latitude: v.lat, longitude: v.lng }))
+      };
       window.parent.postMessage(JSON.stringify({
         type: 'GEOFENCE_CHANGED',
-        data: { isDirty: true }
+        data: data
       }), '*');
     }
   </script>

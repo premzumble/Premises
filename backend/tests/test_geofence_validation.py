@@ -63,16 +63,51 @@ def test_polygon_geofence_validation():
         )
     assert "Self-intersecting polygon boundaries are invalid" in str(excinfo.value)
 
+    # Duplicate consecutive vertices
+    invalid_consecutive = [
+        GeofenceVertexBase(latitude=18.401, longitude=76.559),
+        GeofenceVertexBase(latitude=18.401, longitude=76.559), # consecutive duplicate
+        GeofenceVertexBase(latitude=18.405, longitude=76.559),
+        GeofenceVertexBase(latitude=18.401, longitude=76.563)
+    ]
+    with pytest.raises(ValidationError) as excinfo:
+        GeofenceCreate(
+            name="Consecutive Duplicate Polygon",
+            geofence_type="polygon",
+            vertices=invalid_consecutive
+        )
+    assert "Duplicate consecutive vertices are invalid" in str(excinfo.value)
+
+    # Degenerate (less than 3 unique vertices)
+    degenerate = [
+        GeofenceVertexBase(latitude=18.401, longitude=76.559),
+        GeofenceVertexBase(latitude=18.405, longitude=76.563),
+        GeofenceVertexBase(latitude=18.401, longitude=76.559) # only 2 unique
+    ]
+    with pytest.raises(ValidationError) as excinfo:
+        GeofenceCreate(
+            name="Degenerate Polygon",
+            geofence_type="polygon",
+            vertices=degenerate
+        )
+    assert "A polygon geofence must have at least 3 unique vertices" in str(excinfo.value)
+
 def test_ray_casting_pip_math():
     # Define a polygon (triangle)
     poly = [
         (0.0, 0.0),
         (0.0, 10.0),
         (10.0, 0.0)
-    ]
+      ]
     
     # Point inside triangle
     assert AttendanceService._is_point_in_polygon(2.0, 2.0, poly) is True
+    
+    # Point exactly on vertex
+    assert AttendanceService._is_point_in_polygon(0.0, 0.0, poly) is True
+    
+    # Point exactly on edge
+    assert AttendanceService._is_point_in_polygon(0.0, 5.0, poly) is True
     
     # Point outside triangle
     assert AttendanceService._is_point_in_polygon(8.0, 8.0, poly) is False
