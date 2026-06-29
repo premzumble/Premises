@@ -21,6 +21,29 @@ class GeofenceRepository(BaseRepository[Geofence]):
         return list(result.scalars().all())
 
     async def get_policy_by_org(self, organization_id: uuid.UUID) -> Optional[AttendancePolicy]:
-        stmt = select(AttendancePolicy).where(AttendancePolicy.organization_id == organization_id)
+        stmt = select(AttendancePolicy).where(
+            AttendancePolicy.organization_id == organization_id,
+            AttendancePolicy.department_id == None
+        )
         result = await self.db.execute(stmt)
         return result.scalars().first()
+
+    async def get_policy_by_dept(self, organization_id: uuid.UUID, department_id: Optional[uuid.UUID]) -> Optional[AttendancePolicy]:
+        """
+        Hierarchical policy lookup:
+        1. Try fetching department-specific policy.
+        2. Fallback to organization-wide default policy.
+        """
+        # 1. Try Department Policy
+        if department_id:
+            stmt = select(AttendancePolicy).where(
+                AttendancePolicy.organization_id == organization_id,
+                AttendancePolicy.department_id == department_id
+            )
+            result = await self.db.execute(stmt)
+            policy = result.scalars().first()
+            if policy:
+                return policy
+
+        # 2. Fallback to Org Default
+        return await self.get_policy_by_org(organization_id)

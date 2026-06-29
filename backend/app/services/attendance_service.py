@@ -333,10 +333,6 @@ class AttendanceService:
         self.db.add(record)
 
     async def close_all_expired_records(self, organization_id: uuid.UUID) -> None:
-        policy = await self.geofence_repo.get_policy_by_org(organization_id)
-        if not policy or not policy.end_time:
-            return
-
         today = datetime.now().astimezone().date()
         
         stmt = select(AttendanceRecord).where(
@@ -347,8 +343,31 @@ class AttendanceService:
         result = await self.db.execute(stmt)
         records = result.scalars().all()
 
+        if not records:
+            return
+
+        # Fetch policies for affected departments and the organization default
+        # key: department_id (or None for org default), value: policy
+        policy_cache = {}
+        org_default_policy = await self.geofence_repo.get_policy_by_org(organization_id)
+        if not org_default_policy or not org_default_policy.end_time:
+            return
+
+        policy_cache[None] = org_default_policy
+
         for record in records:
-            await self.evaluate_and_close_record(record, policy)
+            # Determine correct policy for this faculty's department
+            from app.models.user import Faculty
+            fac_stmt = select(Faculty.department_id).where(Faculty.id == record.faculty_id)
+            fac_res = await self.db.execute(fac_stmt)
+            dept_id = fac_res.scalar()
+
+            if dept_id not in policy_cache:
+                policy = await self.geofence_repo.get_policy_by_dept(organization_id, dept_id)
+                policy_cache[dept_id] = policy
+
+            target_policy = policy_cache.get(dept_id) or org_default_policy
+            await self.evaluate_and_close_record(record, target_policy)
         
         await self.db.commit()
 
@@ -365,7 +384,15 @@ class AttendanceService:
         local_event_time = data.event_time.astimezone()
         today = local_event_time.date()
         record = await self.attendance_repo.get_record(faculty_id, today)
-        policy = await self.geofence_repo.get_policy_by_org(organization_id)
+
+        # 1. Fetch Faculty's Department ID
+        from app.models.user import Faculty
+        fac_stmt = select(Faculty.department_id).where(Faculty.id == faculty_id)
+        fac_res = await self.db.execute(fac_stmt)
+        dept_id = fac_res.scalar()
+
+        # 2. Fetch Hierarchical Policy (Dept -> Org Default)
+        policy = await self.geofence_repo.get_policy_by_dept(organization_id, dept_id)
         
         # Default policy times if none exist
         start_time = policy.start_time if policy else time(9, 0)

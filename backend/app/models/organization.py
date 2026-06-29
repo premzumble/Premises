@@ -67,3 +67,4 @@ class Department(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
     organization = relationship("Organization", back_populates="departments")
+    policies = relationship("AttendancePolicy", backref="department", cascade="all, delete-orphan")

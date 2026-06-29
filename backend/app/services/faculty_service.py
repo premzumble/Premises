@@ -132,9 +132,9 @@ class FacultyService:
                     logger.warning(f"[GEOFENCE DEBUG]   vertex[{i}] lat={v.latitude}, lng={v.longitude}")
 
         # Policy details
-        pol_stmt = select(AttendancePolicy).where(AttendancePolicy.organization_id == faculty.organization_id)
-        pol_res = await self.db.execute(pol_stmt)
-        policy = pol_res.scalars().first()
+        from app.repositories.geofence_repo import GeofenceRepository
+        gf_repo = GeofenceRepository(self.db)
+        policy = await gf_repo.get_policy_by_dept(faculty.organization_id, faculty.department_id)
         allowed_outside = policy.allowed_outside_minutes if policy else 0
 
         # Today's attendance record

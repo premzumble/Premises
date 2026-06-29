@@ -47,11 +47,13 @@ class GeofenceVertex(Base):
 class AttendancePolicy(Base):
     __tablename__ = "attendance_policies"
     __table_args__ = (
+        UniqueConstraint("organization_id", "department_id", name="uniq_org_dept_policy"),
         UniqueConstraint("organization_id", "id", name="uniq_org_policy_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    organization_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, unique=True)
+    organization_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    department_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid, ForeignKey("departments.id", ondelete="CASCADE"), nullable=True)
     allowed_outside_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     reminder_1_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     reminder_2_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

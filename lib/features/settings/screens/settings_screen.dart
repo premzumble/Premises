@@ -78,6 +78,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _geofenceType = 'circle';
   List<dynamic>? _geofenceVertices;
 
+  // Pending data from editor's onChangedData callback.
+  // Stored separately to avoid feeding it back as props and creating
+  // a setState→rebuild→didUpdateWidget→notifyChanged feedback loop.
+  Map<String, dynamic>? _pendingEditorData;
+
+  // Guard flag to suppress _onCoordsChanged during programmatic updates
+  bool _suppressCoordsListener = false;
+
+  // Guard flag: true while processing a notification FROM the editor
+  // (onChangedData). Prevents didUpdateWidget from reacting to the rebuild
+  // that onChangedData's setState triggers.
+  bool _editorIsNotifying = false;
+
   final MapController _mapController = MapController();
   LatLng? _testLatLng;
   bool _isTestMode = false;
@@ -134,6 +147,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _notifyOnExitViolation = true;
   bool _notifyOnApprovals = true;
 
+  // Department-wise policy selection
+  String? _selectedPolicyDeptId;
+  String _selectedPolicyDeptName = 'Organization Default';
+
   @override
   void initState() {
     super.initState();
@@ -168,6 +185,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _onCoordsChanged() {
+    // Skip when the listener fires due to programmatic text changes
+    // (e.g. during _fetchGeofence or search result selection)
+    if (_suppressCoordsListener) return;
+
     final double? lat = double.tryParse(_latitudeController.text);
     final double? lng = double.tryParse(_longitudeController.text);
     if (lat != null && lng != null) {
@@ -232,39 +253,47 @@ class _SettingsScreenState extends State<SettingsScreen> {
           final double rad = geofence['radius_meters'] != null ? (geofence['radius_meters'] as num).toDouble() : 500.0;
           final List<dynamic>? vertices = geofence['vertices'];
 
+          // Suppress coord listener to prevent duplicate map moves
+          _suppressCoordsListener = true;
           setState(() {
             _savedLatitude = geofence['latitude'] != null ? lat : null;
             _savedLongitude = geofence['longitude'] != null ? lng : null;
             _savedRadiusMeters = geofence['radius_meters'] != null ? rad : null;
             _geofenceType = type;
             _geofenceVertices = vertices;
+            _pendingEditorData = null; // Reset pending data on fresh load
             _latitudeController.text = lat.toStringAsFixed(6);
             _longitudeController.text = lng.toStringAsFixed(6);
             _manualLatController.text = lat.toStringAsFixed(6);
             _manualLngController.text = lng.toStringAsFixed(6);
             _radiusMeters = rad;
             _hasGeofence = true;
-            try {
-              _mapController.move(LatLng(lat, lng), 15.0);
-            } catch (_) {}
           });
+          _suppressCoordsListener = false;
+          // Move map once after all state is set
+          try {
+            _mapController.move(LatLng(lat, lng), 15.0);
+          } catch (_) {}
         } else {
+          _suppressCoordsListener = true;
           setState(() {
             _savedLatitude = null;
             _savedLongitude = null;
             _savedRadiusMeters = null;
             _geofenceType = 'circle';
             _geofenceVertices = null;
+            _pendingEditorData = null;
             _hasGeofence = false;
             _latitudeController.text = '18.403817';
             _longitudeController.text = '76.560943';
             _manualLatController.text = '18.403817';
             _manualLngController.text = '76.560943';
             _radiusMeters = 500.0;
-            try {
-              _mapController.move(const LatLng(18.403817, 76.560943), 15.0);
-            } catch (_) {}
           });
+          _suppressCoordsListener = false;
+          try {
+            _mapController.move(const LatLng(18.403817, 76.560943), 15.0);
+          } catch (_) {}
         }
       }
     } catch (e) {
@@ -277,34 +306,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _saveGeofence() async {
+    // Use pending editor data if available (latest from onChangedData),
+    // otherwise fall back to saved state (from last fetch/save response).
+    final effectiveType = (_pendingEditorData?['geofence_type'] as String?) ?? _geofenceType;
+    final effectiveVertices = _pendingEditorData?['vertices'] ?? _geofenceVertices;
+    final effectiveLat = _pendingEditorData != null
+        ? (_pendingEditorData!['latitude'] as num?)?.toDouble()
+        : _savedLatitude;
+    final effectiveLng = _pendingEditorData != null
+        ? (_pendingEditorData!['longitude'] as num?)?.toDouble()
+        : _savedLongitude;
+    final effectiveRad = _pendingEditorData != null
+        ? (_pendingEditorData!['radius_meters'] as num?)?.toDouble()
+        : _savedRadiusMeters;
+
     final Map<String, dynamic> payload = {
-      'geofence_type': _geofenceType,
+      'geofence_type': effectiveType,
       'name': 'Campus Boundary',
       'is_active': true
     };
-    if (_geofenceType == 'circle') {
-      payload['latitude'] = _savedLatitude ?? 18.403817;
-      payload['longitude'] = _savedLongitude ?? 76.560943;
-      payload['radius_meters'] = _savedRadiusMeters ?? 500.0;
+    if (effectiveType == 'circle') {
+      payload['latitude'] = effectiveLat ?? 18.403817;
+      payload['longitude'] = effectiveLng ?? 76.560943;
+      payload['radius_meters'] = effectiveRad ?? 500.0;
       payload['vertices'] = null;
     } else {
       double? centroidLat;
       double? centroidLng;
-      if (_geofenceVertices != null && _geofenceVertices!.isNotEmpty) {
+      if (effectiveVertices != null && (effectiveVertices as List).isNotEmpty) {
         double latSum = 0.0;
         double lngSum = 0.0;
-        for (final v in _geofenceVertices!) {
+        for (final v in effectiveVertices) {
           final m = Map<String, dynamic>.from(v);
           latSum += (m['latitude'] as num).toDouble();
           lngSum += (m['longitude'] as num).toDouble();
         }
-        centroidLat = latSum / _geofenceVertices!.length;
-        centroidLng = lngSum / _geofenceVertices!.length;
+        centroidLat = latSum / effectiveVertices.length;
+        centroidLng = lngSum / effectiveVertices.length;
       }
       payload['latitude'] = centroidLat;
       payload['longitude'] = centroidLng;
       payload['radius_meters'] = null;
-      payload['vertices'] = _geofenceVertices;
+      payload['vertices'] = effectiveVertices;
     }
     await _saveCustomGeofence(payload);
   }
@@ -347,6 +390,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _savedLongitude = savedGf['longitude'] != null ? (savedGf['longitude'] as num).toDouble() : null;
             _savedRadiusMeters = savedGf['radius_meters'] != null ? (savedGf['radius_meters'] as num).toDouble() : null;
             _geofenceVertices = savedGf['vertices'];
+            _pendingEditorData = null; // Reset after save
             _hasGeofence = true;
             _geofenceIsDirty = false;
           });
@@ -416,6 +460,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _loadPolicyForSelected() async {
+    try {
+      final policy = await ApiService.fetchPolicy(departmentId: _selectedPolicyDeptId);
+      setState(() {
+        _allowedOutsideController.text = (policy['allowed_outside_minutes'] ?? 0).toString();
+        _reminder1Controller.text = (policy['reminder_1_minutes'] ?? 0).toString();
+        _reminder2Controller.text = (policy['reminder_2_minutes'] ?? 0).toString();
+        _reminder3Controller.text = (policy['reminder_3_minutes'] ?? 0).toString();
+        _evaluationController.text = (policy['evaluation_minutes'] ?? 15).toString();
+
+        if (policy['start_time'] != null) {
+          final parts = policy['start_time'].split(':');
+          _workStartTime = TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+        }
+        if (policy['end_time'] != null) {
+          final parts = policy['end_time'].split(':');
+          _workEndTime = TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+        }
+        if (policy['half_day_cutoff_time'] != null) {
+          final parts = policy['half_day_cutoff_time'].split(':');
+          _halfDayTime = TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+        }
+        if (policy['absent_cutoff_time'] != null) {
+          final parts = policy['absent_cutoff_time'].split(':');
+          _absentTime = TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+        }
+      });
+    } catch (e) {
+      debugPrint('Error loading policy for ${_selectedPolicyDeptName}: $e');
+    }
+  }
+
   Future<void> _loadAllSettings() async {
     setState(() {
       _isLoadingSettings = true;
@@ -448,40 +524,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
 
     try {
-      final policy = await ApiService.fetchPolicy();
-      setState(() {
-        _allowedOutsideController.text = (policy['allowed_outside_minutes'] ?? 0).toString();
-        _reminder1Controller.text = (policy['reminder_1_minutes'] ?? 0).toString();
-        _reminder2Controller.text = (policy['reminder_2_minutes'] ?? 0).toString();
-        _reminder3Controller.text = (policy['reminder_3_minutes'] ?? 0).toString();
-        _evaluationController.text = (policy['evaluation_minutes'] ?? 15).toString();
-
-        if (policy['start_time'] != null) {
-          final parts = policy['start_time'].split(':');
-          _workStartTime = TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
-        }
-        if (policy['end_time'] != null) {
-          final parts = policy['end_time'].split(':');
-          _workEndTime = TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
-        }
-        if (policy['half_day_cutoff_time'] != null) {
-          final parts = policy['half_day_cutoff_time'].split(':');
-          _halfDayTime = TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
-        }
-        if (policy['absent_cutoff_time'] != null) {
-          final parts = policy['absent_cutoff_time'].split(':');
-          _absentTime = TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
-        }
-      });
-    } catch (e) {
-      debugPrint('Error loading policy: $e');
-    }
-
-    try {
       await _loadDepartments();
     } catch (e) {
       debugPrint('Error loading departments: $e');
     } finally {
+      // Load policy (defaults to Org Default)
+      await _loadPolicyForSelected();
       setState(() {
         _isLoadingSettings = false;
       });
@@ -654,6 +702,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _saveAttendancePolicy() async {
     try {
       await ApiService.updatePolicy({
+        'department_id': _selectedPolicyDeptId,
         'allowed_outside_minutes': int.tryParse(_allowedOutsideController.text) ?? 0,
         'reminder_1_minutes': int.tryParse(_reminder1Controller.text) ?? 0,
         'reminder_2_minutes': int.tryParse(_reminder2Controller.text) ?? 0,
@@ -663,8 +712,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         'absent_cutoff_time': _timeOfDayToTimeString(_absentTime),
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Attendance policy saved successfully.'),
+        SnackBar(
+          content: Text('Attendance policy for ${_selectedPolicyDeptName} saved successfully.'),
           backgroundColor: AppColors.success,
         ),
       );
@@ -681,12 +730,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _saveWorkingHours() async {
     try {
       await ApiService.updatePolicy({
+        'department_id': _selectedPolicyDeptId,
         'start_time': _timeOfDayToTimeString(_workStartTime),
         'end_time': _timeOfDayToTimeString(_workEndTime),
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Working hours saved successfully.'),
+        SnackBar(
+          content: Text('Working hours for ${_selectedPolicyDeptName} saved successfully.'),
           backgroundColor: AppColors.success,
         ),
       );
@@ -1184,6 +1234,61 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Widget _buildDeptSelectorForPolicy() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 24),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.primary.withOpacity(0.1)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.business_outlined, color: AppColors.primary, size: 20),
+          const SizedBox(width: 16),
+          const Text(
+            'Configure for:',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: DropdownButton<String?>(
+              value: _selectedPolicyDeptId,
+              isExpanded: true,
+              underline: const SizedBox(),
+              items: [
+                const DropdownMenuItem<String?>(
+                  value: null,
+                  child: Text('Organization Default', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                ),
+                ..._dbDepartments.map((d) => DropdownMenuItem<String?>(
+                  value: d['id'] as String,
+                  child: Text(d['name'] as String, style: const TextStyle(fontSize: 13)),
+                )).toList(),
+              ],
+              onChanged: (val) async {
+                setState(() {
+                  _selectedPolicyDeptId = val;
+                  if (val == null) {
+                    _selectedPolicyDeptName = 'Organization Default';
+                  } else {
+                    _selectedPolicyDeptName = _dbDepartments.firstWhere((d) => d['id'] == val)['name'];
+                  }
+                  _isLoadingSettings = true;
+                });
+                await _loadPolicyForSelected();
+                setState(() {
+                  _isLoadingSettings = false;
+                });
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildAttendancePolicyPane(ThemeData theme) {
     final isDark = theme.brightness == Brightness.dark;
 
@@ -1214,6 +1319,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        _buildDeptSelectorForPolicy(),
         cardContainer(
           title: 'Attendance Rules',
           child: Column(
@@ -1359,6 +1465,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        _buildDeptSelectorForPolicy(),
         // Info Alert banner
         Container(
           padding: const EdgeInsets.all(16),
@@ -1646,14 +1753,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       });
                     },
                     onChangedData: (Map<String, dynamic> data) {
+                      // Store the latest editor state for use during save,
+                      // but do NOT update _savedLatitude/_savedLongitude/_savedRadiusMeters
+                      // as those feed back into GoogleMapEditor as initialLatitude/etc
+                      // and would create a rebuild→didUpdateWidget→notifyChanged loop.
+                      _pendingEditorData = data;
+
+                      // Set guard flag so didUpdateWidget knows this rebuild
+                      // originated from the editor itself and should be ignored.
+                      _editorIsNotifying = true;
+
+                      // Only update display-related state (info panel) and dirty flag.
                       setState(() {
                         _geofenceType = data['geofence_type'] ?? 'circle';
-                        _savedLatitude = data['latitude'] != null ? (data['latitude'] as num).toDouble() : null;
-                        _savedLongitude = data['longitude'] != null ? (data['longitude'] as num).toDouble() : null;
-                        _savedRadiusMeters = data['radius_meters'] != null ? (data['radius_meters'] as num).toDouble() : null;
                         _geofenceVertices = data['vertices'];
                         _geofenceIsDirty = true;
                       });
+
+                      // Clear the guard after the synchronous build cycle.
+                      // The build (and therefore didUpdateWidget) happens synchronously
+                      // within setState, so clearing it here is safe.
+                      _editorIsNotifying = false;
                     },
                   ),
           ),
@@ -1953,5 +2073,3 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 }
-
-

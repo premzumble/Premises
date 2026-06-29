@@ -1,4 +1,4 @@
-from typing import Any, List
+from typing import Any, List, Optional
 import uuid
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
@@ -25,11 +25,16 @@ router = APIRouter()
 
 @router.get("/policy", response_model=StandardResponse[AttendancePolicyResponse])
 async def get_policy(
+    department_id: Optional[uuid.UUID] = None,
     db: AsyncSession = Depends(get_db),
     current_user: Any = Depends(get_current_user),
 ):
     repo = GeofenceRepository(db)
-    policy = await repo.get_policy_by_org(current_user.organization_id)
+    if department_id:
+        policy = await repo.get_policy_by_dept(current_user.organization_id, department_id)
+    else:
+        policy = await repo.get_policy_by_org(current_user.organization_id)
+
     if not policy:
         raise NotFoundException("Attendance policy configurations not found.")
         
@@ -48,26 +53,40 @@ async def update_policy(
     _guard: None = Depends(require_role([UserRole.ADMIN.value])),
 ):
     repo = GeofenceRepository(db)
-    policy = await repo.get_policy_by_org(current_user.organization_id)
+    target_dept_id = data.department_id
+
+    if target_dept_id:
+        policy = await db.execute(
+            select(AttendancePolicy).where(
+                AttendancePolicy.organization_id == current_user.organization_id,
+                AttendancePolicy.department_id == target_dept_id
+            )
+        )
+        policy = policy.scalars().first()
+    else:
+        policy = await repo.get_policy_by_org(current_user.organization_id)
     
     # Track old values
     old_values = {}
     if policy:
         for field in data.model_dump(exclude_unset=True).keys():
-            val = getattr(policy, field)
-            old_values[field] = str(val) if val is not None else None
+            if hasattr(policy, field):
+                val = getattr(policy, field)
+                old_values[field] = str(val) if val is not None else None
     else:
         old_values = {}
         
     if not policy:
         policy_data = data.model_dump(exclude_unset=True)
         policy_data["organization_id"] = current_user.organization_id
+        # Ensure department_id is set if provided in body but not found in DB
         policy = AttendancePolicy(**policy_data)
         db.add(policy)
         await db.flush()
     else:
         for field, value in data.model_dump(exclude_unset=True).items():
-            setattr(policy, field, value)
+            if field != "department_id": # Don't allow changing dept_id of existing policy
+                setattr(policy, field, value)
         db.add(policy)
         
     # Write details to PolicyChangeHistory and AuditLog

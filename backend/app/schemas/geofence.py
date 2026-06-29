@@ -179,6 +179,7 @@ class AttendancePolicyBase(BaseModel):
     end_time: time
     half_day_cutoff_time: time
     absent_cutoff_time: time
+    department_id: Optional[uuid.UUID] = None
 
 
 class AttendancePolicyResponse(AttendancePolicyBase):
@@ -201,3 +202,4 @@ class AttendancePolicyUpdate(BaseModel):
     end_time: Optional[time] = None
     half_day_cutoff_time: Optional[time] = None
     absent_cutoff_time: Optional[time] = None
+    department_id: Optional[uuid.UUID] = None

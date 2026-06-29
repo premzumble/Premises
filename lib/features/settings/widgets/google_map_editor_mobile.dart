@@ -45,6 +45,11 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
   final List<String> _undoStack = [];
   final List<String> _redoStack = [];
 
+  // Guard: true while we're calling onChangedData/onChanged.
+  // Prevents didUpdateWidget from reacting to the parent's setState
+  // rebuild that our own notification triggered.
+  bool _isNotifyingParent = false;
+
   @override
   void initState() {
     super.initState();
@@ -67,11 +72,19 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
   @override
   void didUpdateWidget(covariant GoogleMapEditor oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.initialLatitude != widget.initialLatitude ||
-        oldWidget.initialLongitude != widget.initialLongitude ||
-        oldWidget.initialRadius != widget.initialRadius ||
-        oldWidget.initialType != widget.initialType ||
-        oldWidget.initialVerticesJson != widget.initialVerticesJson) {
+
+    // Skip if this rebuild was triggered by our own notification to the parent.
+    if (_isNotifyingParent) return;
+
+    // Only react to meaningful coordinate/type/vertex changes
+    // (genuine external updates like fetch, not feedback-loop noise).
+    final bool latChanged = (oldWidget.initialLatitude - widget.initialLatitude).abs() > 0.000001;
+    final bool lngChanged = (oldWidget.initialLongitude - widget.initialLongitude).abs() > 0.000001;
+    final bool radChanged = (oldWidget.initialRadius - widget.initialRadius).abs() > 0.1;
+    final bool typeChanged = oldWidget.initialType != widget.initialType;
+    final bool verticesChanged = oldWidget.initialVerticesJson != widget.initialVerticesJson;
+
+    if (latChanged || lngChanged || radChanged || typeChanged || verticesChanged) {
       setState(() {
         _activeMode = widget.initialType;
         _circleCenter = LatLng(widget.initialLatitude, widget.initialLongitude);
@@ -118,12 +131,16 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
       'vertices': _polygonVertices.map((v) => {'latitude': v.latitude, 'longitude': v.longitude}).toList(),
     };
 
+    // Set guard flag before notifying parent to prevent feedback loop.
+    _isNotifyingParent = true;
     if (widget.onChangedData != null) {
       widget.onChangedData!(data);
     }
     if (widget.onChanged != null) {
       widget.onChanged!();
     }
+    // Clear after the synchronous setState→build→didUpdateWidget cycle.
+    _isNotifyingParent = false;
   }
 
   void _setMode(String mode) {

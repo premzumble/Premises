@@ -1,67 +1,77 @@
-# Implementation Plan - Walkthrough Bug Fixes
+# Implementation Plan - Department-wise Working Hours
 
-Fix critical usability bugs in the Admin Walkthrough and Dashboard notification systems.
+Enable each department within an organization to have its own independent working schedule and attendance policies.
 
 ## User Review Required
 
-> [!NOTE]
-> I am introducing a new persistent flag `admin_org_code_banner_seen` to ensure the post-registration reminder only appears once.
+- **Automatic Inheritance**: Faculty will automatically use the schedule of their assigned department. If a department doesn't have a specific schedule set (unlikely after migration), they fallback to the organization's default.
+- **Migration Strategy**: Existing organization-wide policies will be copied to every existing department during migration to ensure no disruption.
 
 ## Proposed Changes
 
-### Core
+### Database & Models
 
-#### [session_manager.dart](file:///E:/Premises/premises/lib/core/session_manager.dart)
-- Remove the in-memory `_bannerDismissed` static flag.
-- Add `Future<bool> shouldShowOrgCodeBanner()` and `Future<void> setOrgCodeBannerSeen()`.
-- Add `Future<void> triggerOrgCodeBanner()` (called from registration).
+#### [geofence.py](file:///E:/Premises/premises/backend/app/models/geofence.py)
+- Modify `AttendancePolicy`:
+    - Remove `unique=True` from `organization_id`.
+    - Add `department_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid, ForeignKey("departments.id", ondelete="CASCADE"), nullable=True)`.
+    - Add `UniqueConstraint("organization_id", "department_id", name="uniq_org_dept_policy")`.
 
-### Auth
+#### [organization.py](file:///E:/Premises/premises/backend/app/models/organization.py)
+- Update `Department` model to include a relationship to `AttendancePolicy`.
 
-#### [register_screen.dart](file:///E:/Premises/premises/lib/features/auth/screens/register_screen.dart)
-- Call `SessionManager.triggerOrgCodeBanner()` upon successful organization registration.
+---
 
-### Admin Walkthrough
+### Backend Services & Repositories
 
-#### [walkthrough_service.dart](file:///E:/Premises/premises/lib/features/admin/walkthrough/services/walkthrough_service.dart)
-- No changes needed here, logic is already persistent.
+#### [geofence_repo.py](file:///E:/Premises/premises/backend/app/repositories/geofence_repo.py)
+- Add `get_policy_by_dept(org_id, dept_id)` which looks for a department-specific policy or falls back to the org default.
 
-#### [walkthrough_controller.dart](file:///E:/Premises/premises/lib/features/admin/walkthrough/controller/walkthrough_controller.dart)
-- Update `startTour()` to accept a `bool isAlreadyOnDashboard` parameter.
-- If `isAlreadyOnDashboard` is true, immediately call `onDashboardReady()` logic to avoid showing the "Navigate to Dashboard" hint.
+#### [attendance_service.py](file:///E:/Premises/premises/backend/app/services/attendance_service.py)
+- Update `register_location_event`: Look up the faculty's department policy instead of the organization's.
+- Update `close_all_expired_records`: Iterate over records and resolve the correct policy for each faculty's department.
+- Update `evaluate_and_close_record`: Accept policy as an argument (already does, but ensure caller passes correct one).
 
-#### [admin_navigation.dart](file:///E:/Premises/premises/lib/features/admin/layouts/admin_navigation.dart)
-- Update `_checkWalkthroughStatus()` to only show the Welcome dialog if the tour is NOT completed AND it's the first login.
-- Pass the current route status to `startTour()`.
+#### [faculty_service.py](file:///E:/Premises/premises/backend/app/services/faculty_service.py)
+- Update `get_dashboard_summary`: Fetch and return the department-specific timings for the faculty's dashboard.
 
-### Admin Dashboard
+---
 
-#### [dashboard_screen.dart](file:///E:/Premises/premises/lib/features/admin/screens/dashboard_screen.dart)
-- Replace in-memory `SessionManager.bannerDismissed` check with a call to `SessionManager.shouldShowOrgCodeBanner()`.
-- Ensure the banner is dismissed persistently.
+### API & Schemas
+
+#### [geofence.py (schemas)](file:///E:/Premises/premises/backend/app/schemas/geofence.py)
+- Update `AttendancePolicyResponse` and `AttendancePolicyUpdate` to include `department_id`.
+
+#### [settings.py (api)](file:///E:/Premises/premises/backend/app/api/settings.py)
+- Update `get_policy` and `update_policy` to accept an optional `department_id` query parameter.
+
+---
+
+### Frontend (Admin Settings)
+
+#### [settings_screen.dart](file:///E:/Premises/premises/lib/features/settings/screens/settings_screen.dart)
+- Update "Working Hours" and "Attendance Policy" tabs:
+    - Add a Department selector dropdown at the top.
+    - Switching departments reloads the policy settings for that specific department.
+    - Saving updates only the selected department's policy.
 
 ---
 
 ## Verification Plan
 
+### Automated Tests
+- `pytest backend/tests/test_department_policy.py`: New test suite to verify:
+    - On-time/Late check-in for different departments with different schedules.
+    - Migration correctness (copying org defaults to departments).
+- `flutter analyze`: Ensure no frontend breakages.
+
 ### Manual Verification
-1.  **Bug 1 (Welcome Dialog)**:
-    - Login as Admin.
-    - Dismiss the Welcome dialog (Start or Skip).
-    - Logout and Login again.
-    - Verify the dialog does NOT appear.
-    - Click Help button -> Replay Tour. Verify the dialog APPEARS.
-
-2.  **Bug 2 (Instant Start)**:
-    - Login as Admin (First time).
-    - In Welcome dialog, click **Start Tour**.
-    - Verify Phase 1 (Dashboard showcase) starts immediately without showing the "Navigate to Dashboard" hint.
-
-3.  **Bug 3 (Org Code Banner)**:
-    - Register a new Organization.
-    - Login.
-    - Verify the Org Code reminder banner appears.
-    - Dismiss the banner.
-    - Logout and Login again.
-    - Verify the banner does NOT appear.
-    - Verify normal logins (for existing orgs) NEVER show the banner.
+1. **Migration**: Run `alembic upgrade head` and verify `attendance_policies` table is populated for all existing departments.
+2. **Admin Config**:
+    - Set Dept A to 09:00 - 17:00.
+    - Set Dept B to 10:00 - 18:00.
+    - Verify both persist independently.
+3. **Faculty Workflow**:
+    - Log in as Faculty in Dept A; verify dashboard shows 09:00 - 17:00.
+    - Log in as Faculty in Dept B; verify dashboard shows 10:00 - 18:00.
+    - Perform a check-in at 09:30; Verify Dept A is marked LATE/PRESENT and Dept B is still within grace/on-time (if applicable).

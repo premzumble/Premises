@@ -447,8 +447,12 @@ class ApiService {
   // =========================================================================
 
   /// GET /settings/policy
-  static Future<Map<String, dynamic>> fetchPolicy() async {
-    final response = await get('/settings/policy');
+  static Future<Map<String, dynamic>> fetchPolicy({String? departmentId}) async {
+    var path = '/settings/policy';
+    if (departmentId != null) {
+      path += '?department_id=$departmentId';
+    }
+    final response = await get(path);
     return response['data'] as Map<String, dynamic>;
   }
 

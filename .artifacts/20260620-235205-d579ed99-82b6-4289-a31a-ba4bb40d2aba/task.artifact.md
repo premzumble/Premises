@@ -1,28 +1,23 @@
-# Task Management - Forgot Password & Email OTP
+# Task Tracking - Department-wise Working Hours
 
-- [ ] Backend - Infrastructure & Config
-    - [ ] Update `config.py` with SMTP settings
-    - [ ] Install `Jinja2` and `aiosmtplib` (if needed, or use standard `smtplib`)
-    - [ ] Create `EmailService` with Jinja2 templates
-- [ ] Backend - Database & Models
-    - [ ] Update `OtpVerification` model in `otp.py`
-    - [ ] Create Alembic migration
-    - [ ] Apply migration to PostgreSQL
-- [ ] Backend - Business Logic
-    - [ ] Implement rate limiting and strong password validation
-    - [ ] Implement `initiate_password_reset`, `verify_reset_otp`, `reset_password` in `AuthService`
-    - [ ] Update registration OTP to use `EmailService`
-- [ ] Backend - API
-    - [ ] Add forgot password endpoints to `auth.py`
-    - [ ] Create `health.py` with email connectivity check
-- [ ] Flutter - Frontend
-    - [ ] Add API methods to `api_service.dart`
-    - [ ] Create `ForgotPasswordScreen`
-    - [ ] Create `VerifyResetOtpScreen`
-    - [ ] Create `ResetPasswordScreen`
-    - [ ] Create `ResetSuccessScreen`
-    - [ ] Link "Forgot Password?" from `LoginScreen`
-- [ ] Verification
-    - [ ] Run backend SMTP health check
-    - [ ] Perform manual end-to-end forgot password test
-    - [ ] Verify rate limiting and password security
+- [x] Phase 1: Database Design & Models
+    - [x] Update `AttendancePolicy` in `geofence.py`
+    - [x] Update `Department` in `organization.py`
+- [x] Phase 2: Safe Database Migration
+    - [x] Generate Alembic migration
+    - [x] Implement data migration (Org -> Dept)
+    - [x] Apply migration
+- [x] Phase 3: Backend Updates
+    - [x] Update `GeofenceRepository`
+    - [x] Update `AttendanceService` evaluation logic
+    - [x] Update `FacultyService` dashboard summary
+- [x] Phase 4: API & Schemas
+    - [x] Update `geofence.py` schemas
+    - [x] Update `settings.py` endpoints
+- [x] Phase 5: Admin Panel UI
+    - [x] Implement Department selector in `SettingsScreen`
+    - [x] Hook up state management for per-department policy editing
+- [x] Phase 6: Final Validation & Testing
+    - [x] Add backend unit tests
+    - [x] Run `flutter analyze`
+    - [x] End-to-end manual verification
