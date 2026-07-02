@@ -1,4 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../../../core/session_manager.dart';
+import '../../../../core/api_service.dart';
 
 /// Persistence layer for the admin onboarding walkthrough.
 ///
@@ -12,13 +15,16 @@ class WalkthroughService {
   // ─── Completed ────────────────────────────────────────────────────────────
 
   Future<bool> isCompleted() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_completedKey) ?? false;
+    return SessionManager.walkthroughCompleted;
   }
 
   Future<void> markCompleted() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_completedKey, true);
+    await SessionManager.markWalkthroughCompletedLocally();
+    try {
+      await ApiService.markWalkthroughCompleted();
+    } catch (e) {
+      debugPrint('Failed to sync walkthrough state to backend: $e');
+    }
   }
 
   // ─── First-Login ──────────────────────────────────────────────────────────
@@ -37,10 +43,11 @@ class WalkthroughService {
 
   // ─── Reset (Replay) ───────────────────────────────────────────────────────
 
-  /// Clears both flags so the full tour flow restarts on next login.
+  /// Clears local flags so the full tour flow restarts on next login,
+  /// but DOES NOT clear the backend `walkthroughCompleted` state.
+  /// This ensures "Completion state remains intact" for the Replay Tour feature.
   Future<void> reset() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_completedKey);
     await prefs.remove(_firstLoginKey);
   }
 }

@@ -6,6 +6,7 @@ import '../../../../core/design_system/app_typography.dart';
 import '../../../../core/widgets/button.dart';
 import '../../../../core/widgets/input.dart';
 import 'reset_success_screen.dart';
+import '../../../../core/widgets/premises_loader.dart';
 
 class ResetPasswordScreen extends StatefulWidget {
   final String email;
@@ -50,13 +51,17 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
-      body: Center(
-        child: SingleChildScrollView(
+      body: Stack(
+        children: [
+          Center(
+            child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 420),
@@ -68,6 +73,18 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      Center(
+                        child: ClipOval(
+                          child: Image.asset(
+                            'assets/images/logo.png',
+                            height: 48,
+                            width: 48,
+                            fit: BoxFit.cover,
+                            filterQuality: FilterQuality.high,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
                       Text(
                         'Set New Password',
                         style: AppTypography.h2,
@@ -132,6 +149,17 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
             ),
           ),
         ),
+      ),
+      if (_isLoading)
+        Positioned.fill(
+          child: Container(
+            color: (isDark ? Colors.black : Colors.white).withOpacity(0.55),
+            child: const Center(
+              child: PremisesBrandedLoader(size: 90),
+            ),
+          ),
+        ),
+        ],
       ),
     );
   }

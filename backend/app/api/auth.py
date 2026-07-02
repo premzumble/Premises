@@ -131,6 +131,7 @@ async def login(request: Request, data: LoginRequest, db: AsyncSession = Depends
         email=user.email,
         full_name=user.full_name,
         organization_id=user.organization_id,
+        walkthrough_completed=getattr(user, "walkthrough_completed", None),
     )
     token_response = TokenResponse(
         access_token=access_token,
@@ -181,6 +182,7 @@ async def get_me(current_user: Any = Depends(get_current_user)):
         email=current_user.email,
         full_name=current_user.full_name,
         organization_id=current_user.organization_id,
+        walkthrough_completed=getattr(current_user, "walkthrough_completed", None),
     )
     return StandardResponse(
         success=True,

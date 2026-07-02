@@ -4,7 +4,7 @@ import uuid
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.dependencies import get_current_user, require_role, get_db
+from app.core.dependencies import get_current_user, require_role, get_db, verify_registration_request_owner
 from app.core.constants import UserRole, UserStatus, RequestStatus
 from app.core.exceptions import NotFoundException
 from app.schemas.base import StandardResponse
@@ -57,6 +57,7 @@ async def approve_registration(
     current_user: Any = Depends(get_current_user),
     _guard: None = Depends(require_role([UserRole.ADMIN.value])),
 ):
+    await verify_registration_request_owner(db, request_id, current_user.organization_id)
     req_stmt = select(FacultyRegistrationRequest).where(
         FacultyRegistrationRequest.id == request_id,
         FacultyRegistrationRequest.organization_id == current_user.organization_id
@@ -75,14 +76,14 @@ async def approve_registration(
         logger.info(f"Admin '{current_user.email}' approved faculty registration request {request_id} for faculty ID {req.faculty_id}")
         await db.execute(
             update(Faculty)
-            .where(Faculty.id == req.faculty_id)
+            .where(Faculty.id == req.faculty_id, Faculty.organization_id == current_user.organization_id)
             .values(status=UserStatus.ACTIVE.value, registered_at=datetime.now(timezone.utc))
         )
     elif status == RequestStatus.REJECTED:
         logger.info(f"Admin '{current_user.email}' rejected faculty registration request {request_id} for faculty ID {req.faculty_id}")
         await db.execute(
             update(Faculty)
-            .where(Faculty.id == req.faculty_id)
+            .where(Faculty.id == req.faculty_id, Faculty.organization_id == current_user.organization_id)
             .values(status=UserStatus.INACTIVE.value)
         )
 
@@ -187,6 +188,35 @@ async def mark_read(
     return StandardResponse(
         success=True,
         message=res["message"],
+        data={},
+    )
+
+
+@router.post("/notifications/{notification_id}/acknowledge", response_model=StandardResponse[dict])
+async def acknowledge_notif(
+    notification_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+    _guard: None = Depends(require_role([UserRole.FACULTY.value])),
+):
+    from app.models.notification import Notification
+    stmt = select(Notification).where(
+        Notification.id == notification_id,
+        Notification.faculty_id == current_user.id
+    )
+    res = await db.execute(stmt)
+    notif = res.scalar_one_or_none()
+    if not notif:
+        raise NotFoundException("Notification not found.")
+    
+    notif.acknowledged_at = datetime.now(timezone.utc)
+    notif.read_at = datetime.now(timezone.utc)
+    notif.status = "READ"
+    await db.commit()
+    
+    return StandardResponse(
+        success=True,
+        message="Notification acknowledged successfully.",
         data={},
     )
 

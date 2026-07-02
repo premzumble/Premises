@@ -1,51 +1,57 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class AppTypography {
   AppTypography._();
 
-  // Typography scale following SaaS UI standards (using Inter or default system font)
-  static TextStyle get h1 => const TextStyle(
-        fontSize: 24,
-        fontWeight: FontWeight.w700,
+  // Page Titles: 28px, SemiBold, tightly tracked (-0.5px)
+  static TextStyle get h1 => GoogleFonts.inter(
+        fontSize: 28,
+        fontWeight: FontWeight.w600,
         letterSpacing: -0.5,
       );
 
-  static TextStyle get h2 => const TextStyle(
-        fontSize: 20,
-        fontWeight: FontWeight.w600,
-        letterSpacing: -0.3,
+  // Card/Section Headers: 18px, Medium
+  static TextStyle get h2 => GoogleFonts.inter(
+        fontSize: 18,
+        fontWeight: FontWeight.w500,
       );
 
-  static TextStyle get h3 => const TextStyle(
+  // Subtitles / Highlights: 16px, Medium
+  static TextStyle get h3 => GoogleFonts.inter(
         fontSize: 16,
-        fontWeight: FontWeight.w600,
-        letterSpacing: -0.2,
+        fontWeight: FontWeight.w500,
       );
 
-  static TextStyle get h4 => const TextStyle(
-        fontSize: 14,
-        fontWeight: FontWeight.w600,
-        letterSpacing: -0.1,
-      );
-
-  static TextStyle get bodyLarge => const TextStyle(
+  // Compact Titles: 14px, Medium
+  static TextStyle get h4 => GoogleFonts.inter(
         fontSize: 14,
         fontWeight: FontWeight.w500,
-        letterSpacing: -0.1,
       );
 
-  static TextStyle get bodyMedium => const TextStyle(
-        fontSize: 13,
+  // Body Text Large: 16px, Regular, 1.5 line height
+  static TextStyle get bodyLarge => GoogleFonts.inter(
+        fontSize: 16,
         fontWeight: FontWeight.w400,
+        height: 1.5,
       );
 
-  static TextStyle get caption => const TextStyle(
+  // Body Text Medium: 14px, Regular, 1.5 line height
+  static TextStyle get bodyMedium => GoogleFonts.inter(
+        fontSize: 14,
+        fontWeight: FontWeight.w400,
+        height: 1.5,
+      );
+
+  // Labels/Metadata: 12px, Medium, ALL CAPS with generous letter spacing (1.2px)
+  static TextStyle get caption => GoogleFonts.inter(
         fontSize: 12,
-        fontWeight: FontWeight.w400,
-        color: Colors.grey,
+        fontWeight: FontWeight.w500,
+        letterSpacing: 1.2,
       );
 
-  static TextStyle get buttonText => const TextStyle(
+  // Button Text
+  static TextStyle get buttonText => GoogleFonts.inter(
         fontSize: 14,
         fontWeight: FontWeight.w600,
         letterSpacing: 0.2,

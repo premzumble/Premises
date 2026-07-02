@@ -344,36 +344,118 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
   Widget _buildProfileCard(ThemeData theme, bool isDark, Map<String, dynamic> s) {
     final name = SessionManager.fullName ?? 'Faculty User';
     final initial = name.isNotEmpty ? name[0].toUpperCase() : 'F';
+    final width = MediaQuery.of(context).size.width;
+    final isMobile = width < 600;
 
     return Card(
       color: theme.colorScheme.primary.withOpacity(0.04),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: theme.colorScheme.primary.withOpacity(0.08)),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Row(
-          children: [
-            CircleAvatar(
-              radius: 28,
-              backgroundColor: theme.colorScheme.primary.withOpacity(0.1),
-              child: Text(initial, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
+        padding: const EdgeInsets.all(16.0),
+        child: isMobile
+            ? Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Welcome back, $name', style: AppTypography.h3),
-                  Text(
-                    'Faculty Member',
-                    style: AppTypography.caption.copyWith(
-                      color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight,
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 24,
+                        backgroundColor: theme.colorScheme.primary.withOpacity(0.1),
+                        child: Text(
+                          initial,
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: theme.colorScheme.primary,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Welcome back,',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                                color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight,
+                                letterSpacing: 0.2,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              name,
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+                                height: 1.2,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _buildPresenceTag(s),
+                ],
+              )
+            : Row(
+                children: [
+                  CircleAvatar(
+                    radius: 26,
+                    backgroundColor: theme.colorScheme.primary.withOpacity(0.1),
+                    child: Text(
+                      initial,
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 17,
+                        color: theme.colorScheme.primary,
+                      ),
                     ),
                   ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Welcome back,',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          name,
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+                            height: 1.2,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  _buildPresenceTag(s),
                 ],
               ),
-            ),
-            _buildPresenceTag(s),
-          ],
-        ),
       ),
     );
   }
@@ -383,37 +465,48 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
     final bool? gpsInside = LocationService.isInsideGeofence;
 
     final String label;
-    final Color bgColor;
-    final Color textColor;
+    final Color color;
 
     if (campusStatus == 'COMPLETED') {
       label = 'OFFICIALLY REGISTERED';
-      bgColor = AppColors.success.withOpacity(0.12);
-      textColor = AppColors.success;
+      color = AppColors.success;
     } else if (gpsInside == true || campusStatus == 'INSIDE') {
       label = 'IN PREMISES';
-      bgColor = AppColors.success.withOpacity(0.12);
-      textColor = AppColors.success;
+      color = AppColors.success;
     } else {
       label = 'OUTSIDE PREMISES';
-      bgColor = AppColors.warning.withOpacity(0.12);
-      textColor = AppColors.warning;
+      color = AppColors.warning;
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(20),
+        color: color.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withOpacity(0.2), width: 1),
       ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: textColor,
-          fontSize: 10,
-          fontWeight: FontWeight.bold,
-          letterSpacing: 0.3,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 9,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.6,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -580,23 +673,40 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
   }
 
   Widget _buildInfoRow(IconData icon, String label, String value, {Color? valueColor}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final secondaryColor = isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight;
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      padding: const EdgeInsets.symmetric(vertical: 10.0),
       child: Row(
         children: [
-          Icon(icon, size: 16, color: Colors.grey),
+          Icon(icon, size: 16, color: secondaryColor),
           const SizedBox(width: 12),
-          Text(label, style: const TextStyle(color: Colors.grey, fontSize: 13)),
-          const SizedBox(width: 8),
+          Text(label, style: TextStyle(color: secondaryColor, fontSize: 13, fontWeight: FontWeight.w500)),
+          const SizedBox(width: 12),
           Expanded(
-            child: Text(
-              value, 
-              textAlign: TextAlign.end,
-              style: TextStyle(
-                fontWeight: FontWeight.w600, 
-                fontSize: 13,
-                color: valueColor,
-              )
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.borderDark.withOpacity(0.3) : AppColors.primaryLight,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: isDark ? AppColors.borderDark : AppColors.borderLight,
+                    width: 0.5,
+                  ),
+                ),
+                child: Text(
+                  value, 
+                  textAlign: TextAlign.end,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold, 
+                    fontSize: 11,
+                    color: valueColor ?? (isDark ? AppColors.textPrimaryDark : AppColors.primary),
+                  )
+                ),
+              ),
             ),
           ),
         ],

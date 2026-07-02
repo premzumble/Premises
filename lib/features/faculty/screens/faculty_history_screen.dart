@@ -3,6 +3,9 @@ import '../../../core/api_service.dart';
 import '../../../core/design_system/app_colors.dart';
 import '../../../core/design_system/app_typography.dart';
 import '../../../core/widgets/button.dart';
+import '../../../core/widgets/dropdown.dart';
+import '../../../core/widgets/premises_loader.dart';
+import '../../../core/widgets/skeleton_loader.dart';
 
 class FacultyHistoryScreen extends StatefulWidget {
   const FacultyHistoryScreen({super.key});
@@ -144,9 +147,9 @@ class _FacultyHistoryScreenState extends State<FacultyHistoryScreen> {
                       color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
                     ),
                   );
-                  final dropdown = DropdownButton<String>(
+                  final dropdown = AppDropdownFormField<String>(
                     value: _rangeType,
-                    dropdownColor: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
+                    fillColor: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
                     items: const [
                       DropdownMenuItem(value: 'today', child: Text('Today')),
                       DropdownMenuItem(value: 'week', child: Text('Past Week')),
@@ -208,7 +211,10 @@ class _FacultyHistoryScreenState extends State<FacultyHistoryScreen> {
 
   Widget _buildHistoryContent(ThemeData theme, bool isDark) {
     if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return const Padding(
+        padding: EdgeInsets.all(16.0),
+        child: SkeletonCardList(itemCount: 4),
+      );
     }
 
     if (_errorMessage != null) {
@@ -271,7 +277,7 @@ class _FacultyHistoryScreenState extends State<FacultyHistoryScreen> {
                       DataCell(Text(_formatTime(r['check_in']))),
                       DataCell(Text(_formatTime(r['check_out']))),
                       DataCell(Text(r['working_duration'] ?? '00h 00m')),
-                      DataCell(_buildStatusBadge(statusText)),
+                      DataCell(_buildStatusBadge(statusText, r['is_overridden'] == true)),
                       DataCell(_buildExcusalCell(r, theme, isDark)),
                     ],
                   );
@@ -311,7 +317,7 @@ class _FacultyHistoryScreenState extends State<FacultyHistoryScreen> {
     );
   }
 
-  Widget _buildStatusBadge(String status) {
+  Widget _buildStatusBadge(String status, bool isOverridden) {
     Color bg;
     Color fg;
     switch (status) {
@@ -330,20 +336,43 @@ class _FacultyHistoryScreenState extends State<FacultyHistoryScreen> {
         break;
     }
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(
-        status,
-        style: TextStyle(
-          color: fg,
-          fontSize: 11,
-          fontWeight: FontWeight.bold,
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            status,
+            style: TextStyle(
+              color: fg,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
         ),
-      ),
+        if (isOverridden) ...[
+          const SizedBox(width: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: Colors.indigo.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: const Text(
+              'OVERRIDE',
+              style: TextStyle(
+                color: Colors.indigo,
+                fontSize: 9,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 

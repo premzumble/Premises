@@ -7,6 +7,7 @@ import '../../../core/app_config.dart';
 import '../../../core/design_system/app_colors.dart';
 import '../../../core/design_system/app_typography.dart';
 import '../../../core/session_manager.dart';
+import '../../../core/widgets/dropdown.dart';
 
 /// Admin-only developer tool screen that simulates geofence entry/exit
 /// events for testing the attendance pipeline without physical movement.
@@ -333,15 +334,10 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
           const SizedBox(height: 8),
           _loadingFaculty
               ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-              : DropdownButtonFormField<String>(
+              : AppDropdownFormField<String>(
                   value: _selectedFacultyId,
-                  isExpanded: true,
-                  decoration: InputDecoration(
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    prefixIcon: const Icon(Icons.person_outline, size: 18),
-                  ),
-                  hint: const Text('Select faculty member', style: TextStyle(fontSize: 13)),
+                  prefixIcon: Icons.person_outline,
+                  hint: 'Select faculty member',
                   items: _facultyList
                       .map((f) => DropdownMenuItem<String>(
                             value: f['id'] as String,

@@ -8,6 +8,7 @@ import '../../../core/session_manager.dart';
 import '../../../core/widgets/button.dart';
 import '../../../core/widgets/input.dart';
 import 'forgot_password/forgot_password_screen.dart';
+import '../../../core/widgets/premises_loader.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -130,6 +131,7 @@ class _LoginScreenState extends State<LoginScreen> {
         email: user['email'] as String,
         fullName: user['full_name'] as String,
         organizationId: user['organization_id'] as String,
+        walkthroughCompleted: user['walkthrough_completed'] as bool?,
       );
 
       if (!mounted) return;
@@ -162,8 +164,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
     return Scaffold(
       backgroundColor: isDark ? AppColors.backgroundDark : AppColors.backgroundLight,
-      body: Center(
-        child: SingleChildScrollView(
+      body: Stack(
+        children: [
+          Center(
+            child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 420),
@@ -177,16 +181,26 @@ class _LoginScreenState extends State<LoginScreen> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      // Wordmark branding
+                      // Logo & Wordmark branding
                       Center(
                         child: Column(
                           children: [
+                            ClipOval(
+                              child: Image.asset(
+                                'assets/images/logo.png',
+                                height: 56,
+                                width: 56,
+                                fit: BoxFit.cover,
+                                filterQuality: FilterQuality.high,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
                             Text(
                               'Premises',
                               style: AppTypography.h1.copyWith(
                                 color: theme.colorScheme.primary,
                                 fontWeight: FontWeight.w900,
-                                letterSpacing: -1.0,
+                                letterSpacing: -0.8,
                               ),
                             ),
                             const SizedBox(height: 8),
@@ -313,8 +327,9 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 24),
 
                       // Register Link
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                      Wrap(
+                        alignment: WrapAlignment.center,
+                        crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
                           Text(
                             "Don't have an account? ",
@@ -344,6 +359,17 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ),
         ),
+      ),
+      if (_isLoading)
+        Positioned.fill(
+          child: Container(
+            color: (isDark ? Colors.black : Colors.white).withOpacity(0.55),
+            child: const Center(
+              child: PremisesBrandedLoader(size: 90),
+            ),
+          ),
+        ),
+        ],
       ),
     );
   }

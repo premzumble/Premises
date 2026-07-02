@@ -19,9 +19,11 @@ class AppTheme {
         onSurface: AppColors.textPrimaryLight,
       ),
       scaffoldBackgroundColor: AppColors.backgroundLight,
+      dividerColor: AppColors.borderLight,
       cardTheme: CardThemeData(
         color: AppColors.surfaceLight,
-        elevation: 0,
+        elevation: 2,
+        shadowColor: Colors.black.withOpacity(0.03),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppSizes.radiusLg),
           side: const BorderSide(color: AppColors.borderLight, width: 1),
@@ -63,7 +65,7 @@ class AppTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: AppColors.surfaceLight,
+        fillColor: AppColors.primaryLight.withOpacity(0.4),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppSizes.radiusMd),
@@ -75,7 +77,7 @@ class AppTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppSizes.radiusMd),
-          borderSide: const BorderSide(color: AppColors.primary, width: 2),
+          borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppSizes.radiusMd),
@@ -90,8 +92,8 @@ class AppTheme {
       useMaterial3: true,
       fontFamily: 'Inter',
       colorScheme: ColorScheme.fromSeed(
-        seedColor: AppColors.primary,
-        primary: AppColors.primary,
+        seedColor: AppColors.primaryDark,
+        primary: AppColors.primaryDark,
         brightness: Brightness.dark,
         background: AppColors.backgroundDark,
         surface: AppColors.surfaceDark,
@@ -99,9 +101,11 @@ class AppTheme {
         onSurface: AppColors.textPrimaryDark,
       ),
       scaffoldBackgroundColor: AppColors.backgroundDark,
+      dividerColor: AppColors.borderDark,
       cardTheme: CardThemeData(
         color: AppColors.surfaceDark,
-        elevation: 0,
+        elevation: 2,
+        shadowColor: Colors.black.withOpacity(0.2),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppSizes.radiusLg),
           side: const BorderSide(color: AppColors.borderDark, width: 1),
@@ -122,10 +126,10 @@ class AppTheme {
       ),
       navigationRailTheme: const NavigationRailThemeData(
         backgroundColor: AppColors.surfaceDark,
-        selectedIconTheme: IconThemeData(color: AppColors.primary),
+        selectedIconTheme: IconThemeData(color: AppColors.primaryDark),
         unselectedIconTheme: IconThemeData(color: AppColors.textMutedDark),
         selectedLabelTextStyle: TextStyle(
-          color: AppColors.primary,
+          color: AppColors.primaryDark,
           fontWeight: FontWeight.w600,
           fontSize: 12,
         ),
@@ -136,14 +140,14 @@ class AppTheme {
       ),
       bottomNavigationBarTheme: const BottomNavigationBarThemeData(
         backgroundColor: AppColors.surfaceDark,
-        selectedItemColor: AppColors.primary,
+        selectedItemColor: AppColors.primaryDark,
         unselectedItemColor: AppColors.textMutedDark,
         type: BottomNavigationBarType.fixed,
         elevation: 8,
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: AppColors.surfaceDark,
+        fillColor: AppColors.backgroundDark,
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppSizes.radiusMd),
@@ -155,7 +159,7 @@ class AppTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppSizes.radiusMd),
-          borderSide: const BorderSide(color: AppColors.primary, width: 2),
+          borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppSizes.radiusMd),

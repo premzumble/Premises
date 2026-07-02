@@ -55,7 +55,8 @@ class WalkthroughTooltip extends StatelessWidget {
   Widget build(BuildContext context) {
     final ctrl = WalkthroughController.instance;
 
-    return Material(
+    return RepaintBoundary(
+      child: Material(
       color: Colors.transparent,
       child: Container(
         width: 292,
@@ -294,6 +295,7 @@ class WalkthroughTooltip extends StatelessWidget {
           ],
         ),
       ),
-    );
+    ),
+   );
   }
 }

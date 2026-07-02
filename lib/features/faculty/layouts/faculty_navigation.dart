@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../../main.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/api_service.dart';
 import '../../../core/design_system/app_colors.dart';
 import '../../../core/design_system/app_sizes.dart';
@@ -95,9 +97,29 @@ class _FacultyNavigationState extends State<FacultyNavigation> {
     return Scaffold(
       appBar: isMobile
           ? AppBar(
-              title: Text(
-                'Premises Faculty',
-                style: AppTypography.h3.copyWith(color: theme.colorScheme.primary, fontWeight: FontWeight.bold),
+              title: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ClipOval(
+                    child: Image.asset(
+                      'assets/images/logo.png',
+                      height: 20,
+                      width: 20,
+                      fit: BoxFit.cover,
+                      filterQuality: FilterQuality.high,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Premises Faculty',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: theme.colorScheme.primary,
+                      letterSpacing: -0.2,
+                    ),
+                  ),
+                ],
               ),
               actions: _buildAppBarActions(context),
             )
@@ -109,10 +131,10 @@ class _FacultyNavigationState extends State<FacultyNavigation> {
             Container(
               width: 250,
               decoration: BoxDecoration(
-                color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
+                color: theme.colorScheme.surface,
                 border: Border(
                   right: BorderSide(
-                    color: isDark ? AppColors.borderDark : AppColors.borderLight,
+                    color: theme.dividerColor,
                   ),
                 ),
               ),
@@ -120,14 +142,29 @@ class _FacultyNavigationState extends State<FacultyNavigation> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-                    child: Text(
-                      'Premises',
-                      style: AppTypography.h2.copyWith(
-                        color: theme.colorScheme.primary,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: -0.5,
-                      ),
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                    child: Row(
+                      children: [
+                        ClipOval(
+                          child: Image.asset(
+                            'assets/images/logo.png',
+                            height: 26,
+                            width: 26,
+                            fit: BoxFit.cover,
+                            filterQuality: FilterQuality.high,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          'Premises',
+                          style: TextStyle(
+                            fontSize: 16.5,
+                            fontWeight: FontWeight.w800,
+                            color: theme.colorScheme.primary,
+                            letterSpacing: -0.3,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   Expanded(
@@ -155,9 +192,10 @@ class _FacultyNavigationState extends State<FacultyNavigation> {
           if (isTablet)
             Container(
               decoration: BoxDecoration(
+                color: theme.colorScheme.surface,
                 border: Border(
                   right: BorderSide(
-                    color: isDark ? AppColors.borderDark : AppColors.borderLight,
+                    color: theme.dividerColor,
                   ),
                 ),
               ),
@@ -229,13 +267,13 @@ class _FacultyNavigationState extends State<FacultyNavigation> {
               children: [
                 if (!isMobile)
                   Container(
-                    height: 70,
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    height: 56,
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
                     decoration: BoxDecoration(
-                      color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
+                      color: theme.colorScheme.surface,
                       border: Border(
                         bottom: BorderSide(
-                          color: isDark ? AppColors.borderDark : AppColors.borderLight,
+                          color: theme.dividerColor,
                         ),
                       ),
                     ),
@@ -243,8 +281,11 @@ class _FacultyNavigationState extends State<FacultyNavigation> {
                       children: [
                         Text(
                           'Faculty Workspace',
-                          style: AppTypography.h3.copyWith(
-                            color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: theme.colorScheme.onBackground,
+                            letterSpacing: -0.2,
                           ),
                         ),
                         const Spacer(),
@@ -322,6 +363,23 @@ class _FacultyNavigationState extends State<FacultyNavigation> {
 
   List<Widget> _buildAppBarActions(BuildContext context) {
     return [
+      IconButton(
+        icon: Icon(
+          Theme.of(context).brightness == Brightness.dark
+              ? Icons.light_mode_outlined
+              : Icons.dark_mode_outlined,
+          size: 20,
+        ),
+        tooltip: 'Toggle Theme',
+        onPressed: () {
+          final isDark = Theme.of(context).brightness == Brightness.dark;
+          final nextMode = isDark ? ThemeMode.light : ThemeMode.dark;
+          themeNotifier.value = nextMode;
+          SharedPreferences.getInstance().then((prefs) {
+            prefs.setString('theme_mode', nextMode == ThemeMode.dark ? 'dark' : 'light');
+          });
+        },
+      ),
       Padding(
         padding: const EdgeInsets.only(top: 8.0, right: 12.0),
         child: ValueListenableBuilder<int>(
@@ -342,6 +400,7 @@ class _FacultyNavigationState extends State<FacultyNavigation> {
   }
 
   Widget _buildSidebarCategory(String title) {
+    final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Text(
@@ -349,7 +408,7 @@ class _FacultyNavigationState extends State<FacultyNavigation> {
         style: TextStyle(
           fontSize: 10,
           fontWeight: FontWeight.bold,
-          color: AppColors.textMutedLight.withOpacity(0.8),
+          color: theme.colorScheme.onBackground.withOpacity(0.5),
           letterSpacing: 1.0,
         ),
       ),
@@ -367,13 +426,27 @@ class _FacultyNavigationState extends State<FacultyNavigation> {
     final isDark = theme.brightness == Brightness.dark;
     final isSelected = selectedIndex == index;
 
-    Color itemColor = isSelected
-        ? AppColors.primary
-        : (isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight);
+    Color itemColor;
+    Color bg;
+    Color borderAccentColor;
 
-    Color bg = isSelected
-        ? AppColors.primary.withOpacity(0.06)
-        : Colors.transparent;
+    if (isSelected) {
+      if (isDark) {
+        itemColor = const Color(0xFFFFFFFF); // Bug 2 selection: Pure White text
+        bg = const Color(0xFF0056D2).withOpacity(0.10); // Sapphire Blue 10% opacity fill
+        borderAccentColor = const Color(0xFF0056D2); // Sapphire Blue left accent indicator
+      } else {
+        itemColor = AppColors.primary;
+        bg = AppColors.primary.withOpacity(0.06);
+        borderAccentColor = AppColors.primary;
+      }
+    } else {
+      itemColor = isDark
+          ? const Color(0xFFA1A1AA) // Inactive sophisticated muted grey
+          : AppColors.textSecondaryLight;
+      bg = Colors.transparent;
+      borderAccentColor = Colors.transparent;
+    }
 
     Widget leadingWidget = Icon(icon, color: itemColor, size: 20);
     if (index == 2) {
@@ -389,27 +462,47 @@ class _FacultyNavigationState extends State<FacultyNavigation> {
       );
     }
 
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 2),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(AppSizes.radiusMd),
-      ),
-      child: ListTile(
-        dense: true,
-        leading: leadingWidget,
-        title: Text(
-          label,
-          style: AppTypography.bodyLarge.copyWith(
-            color: itemColor,
-            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+    return Stack(
+      children: [
+        Container(
+          margin: const EdgeInsets.symmetric(vertical: 2),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(AppSizes.radiusMd),
+          ),
+          child: ListTile(
+            dense: true,
+            hoverColor: isDark ? Colors.white.withOpacity(0.04) : AppColors.primary.withOpacity(0.03),
+            leading: leadingWidget,
+            title: Text(
+              label,
+              style: AppTypography.bodyLarge.copyWith(
+                color: itemColor,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+              ),
+            ),
+            onTap: () => _onItemTapped(index, context),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppSizes.radiusMd),
+            ),
           ),
         ),
-        onTap: () => _onItemTapped(index, context),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppSizes.radiusMd),
-        ),
-      ),
+        if (isSelected)
+          Positioned(
+            left: 0,
+            top: 10,
+            bottom: 10,
+            child: Container(
+              width: 3.0, // 3px thick left-border accent in Sapphire Blue
+              decoration: BoxDecoration(
+                color: borderAccentColor,
+                borderRadius: const BorderRadius.horizontal(
+                  right: Radius.circular(3),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -462,6 +555,22 @@ class _FacultyNavigationState extends State<FacultyNavigation> {
                 ),
               ],
             ),
+          ),
+          // Theme Toggle Button
+          IconButton(
+            icon: Icon(
+              isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+              size: 18,
+              color: isDark ? AppColors.textMutedDark : AppColors.textMutedLight,
+            ),
+            tooltip: 'Toggle Theme',
+            onPressed: () {
+              final nextMode = isDark ? ThemeMode.light : ThemeMode.dark;
+              themeNotifier.value = nextMode;
+              SharedPreferences.getInstance().then((prefs) {
+                prefs.setString('theme_mode', nextMode == ThemeMode.dark ? 'dark' : 'light');
+              });
+            },
           ),
           PopupMenuButton<String>(
             icon: Icon(

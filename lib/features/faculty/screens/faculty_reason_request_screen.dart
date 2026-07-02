@@ -4,6 +4,7 @@ import '../../../core/api_service.dart';
 import '../../../core/design_system/app_colors.dart';
 import '../../../core/design_system/app_typography.dart';
 import '../../../core/widgets/button.dart';
+import '../../../core/widgets/dropdown.dart';
 
 class FacultyReasonRequestScreen extends StatefulWidget {
   const FacultyReasonRequestScreen({super.key});
@@ -95,14 +96,8 @@ class _FacultyReasonRequestScreenState extends State<FacultyReasonRequestScreen>
 
                   Text('Reason Type', style: AppTypography.bodyLarge),
                   const SizedBox(height: 8),
-                  DropdownButtonFormField<String>(
+                  AppDropdownFormField<String>(
                     value: _reasonType,
-                    decoration: InputDecoration(
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    ),
                     items: _reasonTypes.map((type) {
                       return DropdownMenuItem(
                         value: type,

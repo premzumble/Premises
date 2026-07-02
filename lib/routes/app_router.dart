@@ -28,6 +28,21 @@ import '../features/reports/screens/reports_screen.dart';
 class AppRouter {
   AppRouter._();
 
+  static Page<dynamic> _buildFadePage(Widget child, GoRouterState state) {
+    return CustomTransitionPage<void>(
+      key: state.pageKey,
+      child: child,
+      transitionDuration: const Duration(milliseconds: 150),
+      reverseTransitionDuration: const Duration(milliseconds: 150),
+      transitionsBuilder: (context, animation, secondaryAnimation, child) {
+        return FadeTransition(
+          opacity: animation,
+          child: child,
+        );
+      },
+    );
+  }
+
   /// Redirect logic — enforces RBAC and authentication on every navigation event.
   static String? _redirect(BuildContext context, GoRouterState state) {
     final path = state.matchedLocation;
@@ -122,27 +137,27 @@ class AppRouter {
         routes: [
           GoRoute(
             path: '/faculty/dashboard',
-            builder: (context, state) => const FacultyDashboardScreen(),
+            pageBuilder: (context, state) => _buildFadePage(const FacultyDashboardScreen(), state),
           ),
           GoRoute(
             path: '/faculty/history',
-            builder: (context, state) => const FacultyHistoryScreen(),
+            pageBuilder: (context, state) => _buildFadePage(const FacultyHistoryScreen(), state),
           ),
           GoRoute(
             path: '/faculty/notifications',
-            builder: (context, state) => const FacultyNotificationsScreen(),
+            pageBuilder: (context, state) => _buildFadePage(const FacultyNotificationsScreen(), state),
           ),
           GoRoute(
             path: '/faculty/device',
-            builder: (context, state) => const FacultyDeviceScreen(),
+            pageBuilder: (context, state) => _buildFadePage(const FacultyDeviceScreen(), state),
           ),
           GoRoute(
             path: '/faculty/profile',
-            builder: (context, state) => const FacultyProfileScreen(),
+            pageBuilder: (context, state) => _buildFadePage(const FacultyProfileScreen(), state),
           ),
           GoRoute(
             path: '/faculty/reason-request',
-            builder: (context, state) => const FacultyReasonRequestScreen(),
+            pageBuilder: (context, state) => _buildFadePage(const FacultyReasonRequestScreen(), state),
           ),
         ],
       ),
@@ -160,40 +175,40 @@ class AppRouter {
         routes: [
           GoRoute(
             path: '/admin/dashboard',
-            builder: (context, state) => const DashboardScreen(),
+            pageBuilder: (context, state) => _buildFadePage(const DashboardScreen(), state),
           ),
           GoRoute(
             path: '/admin/faculty',
-            builder: (context, state) {
+            pageBuilder: (context, state) {
               final status = state.uri.queryParameters['status'];
-              return FacultyListScreen(filterStatus: status);
+              return _buildFadePage(FacultyListScreen(filterStatus: status), state);
             },
           ),
           GoRoute(
             path: '/admin/attendance',
-            builder: (context, state) => const AttendanceScreen(),
+            pageBuilder: (context, state) => _buildFadePage(const AttendanceScreen(), state),
           ),
           GoRoute(
             path: '/admin/reports',
-            builder: (context, state) => const ReportsScreen(),
+            pageBuilder: (context, state) => _buildFadePage(const ReportsScreen(), state),
           ),
           GoRoute(
             path: '/admin/logs',
-            builder: (context, state) => const LogsScreen(),
+            pageBuilder: (context, state) => _buildFadePage(const LogsScreen(), state),
           ),
           GoRoute(
             path: '/admin/requests',
-            builder: (context, state) => const RequestsScreen(),
+            pageBuilder: (context, state) => _buildFadePage(const RequestsScreen(), state),
           ),
           GoRoute(
             path: '/admin/settings',
-            builder: (context, state) => const SettingsScreen(),
+            pageBuilder: (context, state) => _buildFadePage(const SettingsScreen(), state),
           ),
           // Debug-only: Attendance Simulator (not shown in release builds)
           if (kDebugMode)
             GoRoute(
               path: '/admin/simulator',
-              builder: (context, state) => const SimulatorScreen(),
+              pageBuilder: (context, state) => _buildFadePage(const SimulatorScreen(), state),
             ),
         ],
       ),

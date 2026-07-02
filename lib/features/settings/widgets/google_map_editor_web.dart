@@ -52,8 +52,9 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
     ui_web.platformViewRegistry.registerViewFactory(
       _viewId,
       (int viewId) {
-        print('[GoogleMapEditorWeb] registerViewFactory callback. Generating srcdoc for IFrame.');
-        final htmlContent = _buildHtmlTemplate();
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        print('[GoogleMapEditorWeb] registerViewFactory callback. Generating srcdoc for IFrame. isDark: $isDark');
+        final htmlContent = _buildHtmlTemplate(isDark);
         final iframe = html.IFrameElement()
           ..id = _viewId
           ..style.border = 'none'
@@ -136,7 +137,26 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
     return HtmlElementView(viewType: _viewId);
   }
 
-  String _buildHtmlTemplate() {
+  String _buildHtmlTemplate(bool isDark) {
+    final String mapStyles = isDark 
+        ? '''[
+          { elementType: "geometry", stylers: [{ color: "#1e293b" }] },
+          { elementType: "labels.text.stroke", stylers: [{ color: "#0f172a" }] },
+          { elementType: "labels.text.fill", stylers: [{ color: "#94a3b8" }] },
+          { featureType: "administrative", elementType: "geometry", stylers: [{ color: "#334155" }] },
+          { featureType: "poi", elementType: "labels.text.fill", stylers: [{ color: "#64748b" }] },
+          { featureType: "road", elementType: "geometry", stylers: [{ color: "#334155" }] },
+          { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#1e293b" }] },
+          { featureType: "water", elementType: "geometry", stylers: [{ color: "#0f172a" }] }
+        ]'''
+        : '''[
+          { elementType: "geometry", stylers: [{ color: "#f5f5f5" }] },
+          { elementType: "labels.text.stroke", stylers: [{ color: "#ffffff" }] },
+          { elementType: "labels.text.fill", stylers: [{ color: "#616161" }] },
+          { featureType: "road", elementType: "geometry", stylers: [{ color: "#ffffff" }] },
+          { featureType: "water", elementType: "geometry", stylers: [{ color: "#e9e9e9" }] }
+        ]''';
+
     print('[GoogleMapEditorWeb] _buildHtmlTemplate called. Injecting key: "${widget.apiKey}"');
     final String verticesJsonEscaped = widget.initialVerticesJson != null
         ? widget.initialVerticesJson!.replaceAll('"', '\\"')
@@ -148,15 +168,34 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
 <head>
   <meta charset="utf-8">
   <title>Google Map Editor</title>
-  <style>
+    <style>
+    :root {
+      --bg-color: ${isDark ? '#0F120F' : '#F9F9F6'};
+      --text-color: ${isDark ? '#F1F3F1' : '#1C221C'};
+      --sidebar-bg: ${isDark ? '#1B211C' : '#FFFFFF'};
+      --border-color: ${isDark ? '#2B342B' : '#E8E8E1'};
+      --card-bg: ${isDark ? 'rgba(27, 33, 28, 0.4)' : '#FFFFFF'};
+      --text-secondary: ${isDark ? '#A2ABA2' : '#556055'};
+      --text-muted: ${isDark ? '#6B756B' : '#98A298'};
+      --primary-color: #2E3D30;
+      --primary-hover: #1E2B1F;
+      --primary-light: #F1F3EE;
+      --success-color: #388E3C;
+      --danger-color: #D32F2F;
+      --warning-color: #F57C00;
+      --shadow-sm: ${isDark ? '0 1px 2px rgba(0,0,0,0.3)' : '0 1px 2px rgba(0,0,0,0.03)'};
+      --shadow-md: ${isDark ? '0 4px 12px rgba(0,0,0,0.4)' : '0 4px 12px rgba(0,0,0,0.04)'};
+      --shadow-lg: ${isDark ? '0 10px 25px rgba(0,0,0,0.5)' : '0 10px 25px rgba(0,0,0,0.05)'};
+    }
+
     html, body {
       margin: 0;
       padding: 0;
       width: 100%;
       height: 100%;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      background-color: #0f172a;
-      color: #f8fafc;
+      background-color: var(--bg-color);
+      color: var(--text-color);
       overflow: hidden;
     }
     
@@ -171,8 +210,8 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
     .sidebar {
       width: 320px;
       height: 100%;
-      background-color: #111827;
-      border-right: 1px solid #334155;
+      background-color: var(--sidebar-bg);
+      border-right: 1px solid var(--border-color);
       display: flex;
       flex-direction: column;
       z-index: 10;
@@ -180,7 +219,7 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
       position: absolute;
       left: 0;
       top: 0;
-      box-shadow: 10px 0 30px -5px rgba(0, 0, 0, 0.5);
+      box-shadow: var(--shadow-lg);
     }
     
     .sidebar.collapsed {
@@ -188,8 +227,8 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
     }
     
     .sidebar-header {
-      padding: 16px;
-      border-bottom: 1px solid #334155;
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--border-color);
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -200,25 +239,28 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
     }
     
     .sidebar-title {
-      font-size: 16px;
+      font-size: 15px;
       font-weight: 700;
-      color: #f8fafc;
-      letter-spacing: 0.5px;
+      color: var(--text-color);
+      letter-spacing: -0.2px;
     }
     
     .collapse-btn {
       background: none;
       border: none;
-      color: #94a3b8;
+      color: var(--text-secondary);
       cursor: pointer;
-      font-size: 16px;
-      padding: 4px;
-      border-radius: 4px;
+      font-size: 14px;
+      padding: 6px;
+      border-radius: 6px;
       transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
     .collapse-btn:hover {
-      background: rgba(255, 255, 255, 0.05);
-      color: #f8fafc;
+      background: var(--primary-light);
+      color: var(--primary-color);
     }
 
     .expand-btn {
@@ -226,67 +268,70 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
       left: 0;
       top: 20px;
       z-index: 20;
-      background: #111827;
-      border: 1px solid #334155;
+      background: var(--sidebar-bg);
+      border: 1px solid var(--border-color);
       border-left: none;
-      color: #94a3b8;
-      border-radius: 0 6px 6px 0;
-      padding: 12px 8px;
+      color: var(--text-secondary);
+      border-radius: 0 8px 8px 0;
+      padding: 14px 10px;
       cursor: pointer;
-      box-shadow: 5px 0 15px rgba(0, 0, 0, 0.3);
+      box-shadow: var(--shadow-md);
       transition: all 0.2s;
+      font-size: 12px;
     }
     .expand-btn:hover {
-      color: #f8fafc;
-      background: #1e293b;
+      color: var(--primary-color);
+      background: var(--primary-light);
     }
     
     .sidebar-content {
       flex: 1;
       overflow-y: auto;
-      padding: 16px;
+      padding: 20px;
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: 20px;
     }
     
     /* Cards */
     .control-card, .workflow-card, .stats-card {
-      background: rgba(30, 41, 59, 0.4);
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      border-radius: 10px;
-      padding: 14px;
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 18px;
+      box-shadow: var(--shadow-sm);
     }
     
     .card-label {
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 700;
       text-transform: uppercase;
-      color: #64748b;
-      margin-bottom: 8px;
+      color: var(--text-muted);
+      margin-bottom: 10px;
       display: block;
+      letter-spacing: 0.5px;
     }
     
     /* Guided Workflow */
     .workflow-header {
       font-size: 10px;
       font-weight: 800;
-      color: #4f46e5;
+      color: var(--primary-color);
       letter-spacing: 1px;
-      margin-bottom: 12px;
+      margin-bottom: 16px;
       text-transform: uppercase;
     }
     
     .steps-container {
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 12px;
     }
     
     .step {
       display: flex;
       align-items: flex-start;
-      gap: 10px;
+      gap: 12px;
       opacity: 0.4;
       transition: opacity 0.3s;
     }
@@ -296,16 +341,16 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
     }
     
     .step.completed {
-      opacity: 0.7;
+      opacity: 0.8;
     }
     
     .step-num {
-      width: 18px;
-      height: 18px;
+      width: 20px;
+      height: 20px;
       border-radius: 50%;
-      background: #334155;
-      color: #94a3b8;
-      font-size: 10px;
+      background: ${isDark ? '#2B342B' : '#E8E8E1'};
+      color: var(--text-muted);
+      font-size: 11px;
       font-weight: 700;
       display: flex;
       align-items: center;
@@ -314,29 +359,29 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
     }
     
     .step.active .step-num {
-      background: #4f46e5;
+      background: var(--primary-color);
       color: #fff;
-      box-shadow: 0 0 8px rgba(79, 70, 229, 0.6);
+      box-shadow: 0 0 0 3px ${isDark ? 'rgba(46, 61, 48, 0.4)' : 'rgba(46, 61, 48, 0.15)'};
     }
     
     .step.completed .step-num {
-      background: #10b981;
+      background: var(--success-color);
       color: #fff;
     }
     
     .step-title {
-      font-size: 12px;
-      font-weight: 700;
-      color: #cbd5e1;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-secondary);
     }
     .step.active .step-title {
-      color: #fff;
+      color: var(--text-color);
     }
     
     .step-desc {
-      font-size: 10px;
-      color: #64748b;
-      margin-top: 1px;
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
     }
     
     /* Premium Search Box */
@@ -348,48 +393,54 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
     
     .search-icon {
       position: absolute;
-      left: 10px;
-      color: #64748b;
-      font-size: 12px;
+      left: 12px;
+      color: var(--text-muted);
+      font-size: 14px;
+      display: flex;
+      align-items: center;
     }
     
     .search-box input {
       width: 100%;
-      padding: 8px 32px 8px 28px;
-      background: #0f172a;
-      border: 1px solid #334155;
-      border-radius: 20px;
-      color: #fff;
-      font-size: 12px;
+      padding: 10px 32px 10px 32px;
+      background: ${isDark ? '#0F120F' : '#FFFFFF'};
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      color: var(--text-color);
+      font-size: 13px;
       transition: all 0.2s;
+      box-sizing: border-box;
     }
     
     .search-box input:focus {
       outline: none;
-      border-color: #4f46e5;
-      box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2);
+      border-color: var(--primary-color);
+      box-shadow: 0 0 0 3px ${isDark ? 'rgba(46, 61, 48, 0.4)' : 'rgba(46, 61, 48, 0.15)'};
     }
     
     .clear-search-btn {
       position: absolute;
-      right: 10px;
+      right: 12px;
       background: none;
       border: none;
-      color: #64748b;
+      color: var(--text-muted);
       cursor: pointer;
-      font-size: 11px;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      padding: 0;
     }
     .clear-search-btn:hover {
-      color: #cbd5e1;
+      color: var(--text-color);
     }
     
     .loading-spinner {
       position: absolute;
-      right: 28px;
+      right: 32px;
       width: 12px;
       height: 12px;
-      border: 2px solid rgba(255, 255, 255, 0.2);
-      border-top-color: #4f46e5;
+      border: 2px solid var(--border-color);
+      border-top-color: var(--primary-color);
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
     }
@@ -397,22 +448,22 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
     /* Segmented Mode Selector */
     .mode-selector {
       display: flex;
-      background: #0f172a;
-      padding: 3px;
-      border-radius: 20px;
-      border: 1px solid #334155;
+      background: ${isDark ? '#0F120F' : '#F1F3EE'};
+      padding: 4px;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
     }
     
     .mode-btn {
       flex: 1;
       background: none;
       border: none;
-      color: #94a3b8;
-      font-size: 12px;
+      color: var(--text-secondary);
+      font-size: 13px;
       font-weight: 600;
-      padding: 6px 0;
+      padding: 8px 0;
       cursor: pointer;
-      border-radius: 17px;
+      border-radius: 6px;
       transition: all 0.2s;
       display: flex;
       align-items: center;
@@ -421,33 +472,33 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
     }
     
     .mode-btn.active#mode-btn-circle {
-      background: #4f46e5;
+      background: var(--primary-color);
       color: #fff;
-      box-shadow: 0 2px 8px rgba(79, 70, 229, 0.4);
+      box-shadow: var(--shadow-sm);
     }
     
     .mode-btn.active#mode-btn-polygon {
-      background: #10b981;
+      background: var(--success-color);
       color: #fff;
-      box-shadow: 0 2px 8px rgba(16, 185, 129, 0.4);
+      box-shadow: var(--shadow-sm);
     }
     
     /* Help Banner */
     .help-tip-banner {
-      background: rgba(79, 70, 229, 0.08);
-      border: 1px dashed rgba(79, 70, 229, 0.3);
+      background: ${isDark ? 'rgba(46, 61, 48, 0.15)' : 'rgba(46, 61, 48, 0.05)'};
+      border: 1px dashed ${isDark ? 'rgba(46, 61, 48, 0.3)' : 'rgba(46, 61, 48, 0.2)'};
       border-radius: 8px;
-      padding: 10px;
+      padding: 12px;
       font-size: 11px;
-      line-height: 1.4;
-      color: #a5b4fc;
+      line-height: 1.5;
+      color: var(--text-secondary);
     }
     
     /* Statistics Card */
     .stats-header {
       font-size: 10px;
       font-weight: 800;
-      color: #10b981;
+      color: var(--success-color);
       letter-spacing: 1px;
       margin-bottom: 12px;
       text-transform: uppercase;
@@ -456,7 +507,7 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
     .stats-grid {
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 10px;
     }
     
     .stat-row {
@@ -467,82 +518,88 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
     }
     
     .stat-label {
-      color: #94a3b8;
+      color: var(--text-secondary);
     }
     
     .stat-val {
       font-weight: 600;
-      color: #cbd5e1;
+      color: var(--text-color);
     }
     
     .stat-val.highlight {
-      color: #60a5fa;
+      color: var(--primary-color);
       font-weight: 700;
     }
     
     .badge {
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-size: 10px;
-      background: rgba(255, 255, 255, 0.08);
-      color: #cbd5e1;
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 10.5px;
+      font-weight: 600;
+      background: ${isDark ? 'rgba(255,255,255,0.05)' : '#F1F3EE'};
+      color: var(--text-secondary);
     }
     .badge.success {
-      background: rgba(16, 185, 129, 0.15);
-      color: #34d399;
-      border: 1px solid rgba(16, 185, 129, 0.2);
+      background: ${isDark ? 'rgba(56, 142, 60, 0.15)' : 'rgba(56, 142, 60, 0.1)'};
+      color: var(--success-color);
+      border: 1px solid ${isDark ? 'rgba(56, 142, 60, 0.2)' : 'rgba(56, 142, 60, 0.15)'};
     }
     
     /* Warnings Banner */
     .alert-banner {
       display: none;
-      background: rgba(239, 68, 68, 0.15);
-      border: 1px solid rgba(239, 68, 68, 0.3);
-      color: #f87171;
+      background: ${isDark ? 'rgba(211, 47, 47, 0.15)' : 'rgba(211, 47, 47, 0.1)'};
+      border: 1px solid ${isDark ? 'rgba(211, 47, 47, 0.2)' : 'rgba(211, 47, 47, 0.15)'};
+      color: var(--danger-color);
       border-radius: 8px;
-      padding: 10px;
-      font-size: 11px;
+      padding: 12px;
+      font-size: 11.5px;
       font-weight: 500;
-      line-height: 1.4;
+      line-height: 1.5;
     }
     
     /* Sidebar Footer Button Styles */
     .sidebar-footer {
-      padding: 16px;
-      border-top: 1px solid #334155;
-      background: #111827;
+      padding: 16px 20px;
+      border-top: 1px solid var(--border-color);
+      background: var(--sidebar-bg);
       display: flex;
-      gap: 8px;
+      gap: 12px;
     }
     
     .btn {
       flex: 1;
-      padding: 8px 12px;
+      padding: 10px 16px;
       border: none;
-      border-radius: 6px;
-      font-size: 12px;
-      font-weight: 700;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
       cursor: pointer;
       transition: all 0.2s;
       text-align: center;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
     }
     
     .btn-secondary {
-      background: rgba(51, 65, 85, 0.8);
-      color: #e2e8f0;
-      border: 1px solid #334155;
+      background: ${isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF'};
+      color: var(--text-color);
+      border: 1px solid var(--border-color);
+      box-shadow: var(--shadow-sm);
     }
     .btn-secondary:hover {
-      background: rgba(71, 85, 105, 0.8);
+      background: var(--primary-light);
     }
     
     .btn-primary {
-      background: #4f46e5;
+      background: var(--primary-color);
       color: #fff;
-      box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25);
+      box-shadow: var(--shadow-sm);
     }
     .btn-primary:hover {
-      background: #4338ca;
+      background: var(--primary-hover);
     }
     
     /* Workspace (Map + Toolbar) */
@@ -569,34 +626,34 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
       top: 16px;
       right: 70px; /* Leave space for native map type horizontal bar */
       z-index: 10;
-      background: rgba(17, 24, 39, 0.95);
-      border: 1px solid #334155;
+      background: var(--sidebar-bg);
+      border: 1px solid var(--border-color);
       border-radius: 8px;
-      padding: 4px;
+      padding: 5px;
       display: flex;
       align-items: center;
-      gap: 2px;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+      gap: 4px;
+      box-shadow: var(--shadow-md);
     }
     
     .toolbar-item {
       background: none;
       border: none;
-      color: #94a3b8;
-      padding: 6px 10px;
-      border-radius: 4px;
+      color: var(--text-secondary);
+      padding: 6px 12px;
+      border-radius: 6px;
       cursor: pointer;
       display: flex;
       align-items: center;
       gap: 6px;
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 600;
       transition: all 0.2s;
     }
     
     .toolbar-item:hover {
-      background: rgba(255, 255, 255, 0.05);
-      color: #f8fafc;
+      background: var(--primary-light);
+      color: var(--primary-color);
     }
     
     .toolbar-item:disabled {
@@ -605,22 +662,22 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
     }
     
     .tb-icon {
-      font-size: 13px;
+      font-size: 14px;
     }
     
     .tb-separator {
       width: 1px;
-      height: 16px;
-      background: #334155;
+      height: 18px;
+      background: var(--border-color);
       margin: 0 4px;
     }
     
     .btn-danger-text {
-      color: #f87171;
+      color: var(--danger-color);
     }
     .btn-danger-text:hover {
-      background: rgba(239, 68, 68, 0.1);
-      color: #fca5a5;
+      background: ${isDark ? 'rgba(211, 47, 47, 0.15)' : 'rgba(211, 47, 47, 0.1)'};
+      color: var(--danger-color);
     }
     
     /* Onboarding Tutorial Overlay */
@@ -630,7 +687,7 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
       left: 0;
       width: 100%;
       height: 100%;
-      background: rgba(15, 23, 42, 0.7);
+      background: ${isDark ? 'rgba(15, 18, 15, 0.7)' : 'rgba(249, 249, 246, 0.7)'};
       backdrop-filter: blur(4px);
       z-index: 100;
       display: flex;
@@ -639,12 +696,12 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
     }
     
     .onboarding-card {
-      background: #111827;
-      border: 1px solid #334155;
-      border-radius: 12px;
-      padding: 24px;
+      background: var(--sidebar-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 28px;
       width: 380px;
-      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.5);
+      box-shadow: var(--shadow-lg);
       text-align: center;
       animation: fadeIn 0.4s ease-out;
     }
@@ -657,37 +714,38 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
     .onboarding-title {
       font-size: 18px;
       font-weight: 700;
-      color: #fff;
+      color: var(--text-color);
       margin-bottom: 8px;
+      letter-spacing: -0.2px;
     }
     
     .onboarding-subtitle {
-      font-size: 12px;
-      color: #94a3b8;
+      font-size: 12.5px;
+      color: var(--text-secondary);
       line-height: 1.5;
-      margin-bottom: 20px;
+      margin-bottom: 24px;
     }
     
     .onboarding-steps {
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 14px;
       text-align: left;
-      margin-bottom: 20px;
+      margin-bottom: 24px;
     }
     
     .obs-item {
       display: flex;
       align-items: center;
       gap: 12px;
-      font-size: 12px;
-      color: #cbd5e1;
+      font-size: 12.5px;
+      color: var(--text-color);
     }
     
     .obs-num {
-      width: 20px;
-      height: 20px;
-      background: #4f46e5;
+      width: 22px;
+      height: 22px;
+      background: var(--primary-color);
       color: #fff;
       font-weight: 700;
       border-radius: 50%;
@@ -695,6 +753,65 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
       align-items: center;
       justify-content: center;
       font-size: 11px;
+    }
+
+    /* Google Autocomplete Customization */
+    .pac-container {
+      background-color: var(--sidebar-bg) !important;
+      border: 1px solid var(--border-color) !important;
+      border-radius: 10px !important;
+      box-shadow: var(--shadow-lg) !important;
+      font-family: inherit !important;
+      margin-top: 6px !important;
+      z-index: 999999 !important;
+    }
+    
+    .pac-item {
+      padding: 10px 14px !important;
+      font-size: 12.5px !important;
+      color: var(--text-secondary) !important;
+      border-top: 1px solid var(--border-color) !important;
+      cursor: pointer !important;
+      display: flex !important;
+      align-items: center !important;
+      gap: 8px !important;
+      line-height: 1.6 !important;
+    }
+    
+    .pac-item:hover {
+      background-color: var(--primary-light) !important;
+      color: var(--primary-color) !important;
+    }
+    
+    .pac-item-query {
+      font-size: 12.5px !important;
+      color: var(--text-color) !important;
+      font-weight: 600 !important;
+    }
+    
+    .pac-matched {
+      color: var(--primary-color) !important;
+    }
+    
+    .pac-icon {
+      margin-top: 0 !important;
+      background-image: none !important;
+      width: 14px !important;
+      height: 14px !important;
+      display: inline-block !important;
+      position: relative !important;
+    }
+    
+    .pac-icon::before {
+      content: "📍" !important;
+      font-size: 12px !important;
+      position: absolute !important;
+      top: -1px !important;
+      left: 0 !important;
+    }
+    
+    .pac-logo::after {
+      display: none !important;
     }
     
     @keyframes spin {
@@ -991,16 +1108,7 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
           position: google.maps.ControlPosition.RIGHT_CENTER
         },
         scaleControl: true,
-        styles: [
-          { elementType: "geometry", stylers: [{ color: "#1e293b" }] },
-          { elementType: "labels.text.stroke", stylers: [{ color: "#0f172a" }] },
-          { elementType: "labels.text.fill", stylers: [{ color: "#94a3b8" }] },
-          { featureType: "administrative", elementType: "geometry", stylers: [{ color: "#334155" }] },
-          { featureType: "poi", elementType: "labels.text.fill", stylers: [{ color: "#64748b" }] },
-          { featureType: "road", elementType: "geometry", stylers: [{ color: "#334155" }] },
-          { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#1e293b" }] },
-          { featureType: "water", elementType: "geometry", stylers: [{ color: "#0f172a" }] }
-        ]
+        styles: $mapStyles
       });
 
       // Autocomplete Search Box

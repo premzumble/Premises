@@ -16,12 +16,22 @@ class ResetSuccessScreen extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
+              ClipOval(
+                child: Image.asset(
+                  'assets/images/logo.png',
+                  height: 64,
+                  width: 64,
+                  fit: BoxFit.cover,
+                  filterQuality: FilterQuality.high,
+                ),
+              ),
+              const SizedBox(height: 24),
               const Icon(
                 Icons.check_circle_outline,
                 color: AppColors.success,
-                size: 80,
+                size: 56,
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
               Text(
                 'Password Reset Complete',
                 style: AppTypography.h2,

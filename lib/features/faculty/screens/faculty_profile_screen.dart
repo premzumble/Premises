@@ -6,6 +6,7 @@ import '../../../core/design_system/app_typography.dart';
 import '../../../core/widgets/button.dart';
 import '../../../core/widgets/input.dart';
 import '../../../core/session_manager.dart';
+import '../../../core/widgets/premises_loader.dart';
 
 class FacultyProfileScreen extends StatefulWidget {
   const FacultyProfileScreen({super.key});
@@ -134,7 +135,7 @@ class _FacultyProfileScreenState extends State<FacultyProfileScreen> {
     final isDark = theme.brightness == Brightness.dark;
 
     if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(child: PremisesBrandedLoader());
     }
 
     if (_errorMessage != null && _profileData == null) {

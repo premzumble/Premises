@@ -21,6 +21,8 @@ import '../../admin/walkthrough/controller/walkthrough_controller.dart';
 import '../../admin/walkthrough/walkthrough_steps_definition.dart';
 import '../../admin/walkthrough/widgets/walkthrough_tooltip.dart';
 import '../widgets/google_map_editor.dart';
+import '../../../core/widgets/premises_loader.dart';
+import '../../../core/utils/platform_pointer_interceptor.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -103,38 +105,93 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final String _baseUrl = kBaseUrl;
   bool _geofenceIsDirty = false;
 
+  // Original saved configurations for dirty state checking
+  double? _originalLatitude;
+  double? _originalLongitude;
+  double? _originalRadiusMeters;
+  String? _originalGeofenceType;
+  List<dynamic>? _originalGeofenceVertices;
+
   Future<void> _switchSection(String sectionName) async {
     if (_activeSection == 'Campus Geofence' && _geofenceIsDirty) {
-      final confirm = await showDialog<bool>(
+      setMapPointerEvents(false); // Disable map pointer events to prevent iframe interception
+      showDialog<void>(
         context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Unsaved Geofence Changes'),
-          content: const Text(
-            'You have unsaved changes in your campus geofence boundary configuration. '
-            'Are you sure you want to discard them and switch sections?',
+        builder: (dialogContext) => Padding(
+          padding: const EdgeInsets.only(top: 40.0), // Margins the dialog slightly from the top edge
+          child: AlertDialog(
+            alignment: Alignment.topCenter, // Aligns dialog to the top center, keeping it off the map
+            title: const Text('Unsaved Geofence Changes'),
+            content: const Text(
+              'You have unsaved changes in your campus geofence boundary configuration. '
+              'Are you sure you want to discard them and switch sections?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context, rootNavigator: true).pop();
+                },
+                style: TextButton.styleFrom(
+                  foregroundColor: const Color(0xFFA1A1AA), // Neutral secondary style
+                ),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.of(context, rootNavigator: true).pop();
+                  _restoreOriginalGeofenceState();
+                  setState(() {
+                    _activeSection = sectionName;
+                  });
+                },
+                style: TextButton.styleFrom(
+                  foregroundColor: const Color(0xFF0056D2), // Primary action Sapphire Blue style
+                  textStyle: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                child: const Text('Discard'),
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Discard', style: TextStyle(color: AppColors.danger)),
-            ),
-          ],
         ),
-      );
-      if (confirm != true) return;
-      _geofenceIsDirty = false;
+      ).then((_) {
+        setMapPointerEvents(true); // Re-enable pointer events when the dialog is dismissed
+      });
+      return;
     }
     setState(() {
       _activeSection = sectionName;
     });
   }
 
+  void _restoreOriginalGeofenceState() {
+    _suppressCoordsListener = true;
+    setState(() {
+      _geofenceType = _originalGeofenceType ?? 'circle';
+      _geofenceVertices = _originalGeofenceVertices;
+      _savedLatitude = _originalLatitude;
+      _savedLongitude = _originalLongitude;
+      _savedRadiusMeters = _originalRadiusMeters;
+
+      final lat = _originalLatitude ?? 18.403817;
+      final lng = _originalLongitude ?? 76.560943;
+      final rad = _originalRadiusMeters ?? 500.0;
+
+      _latitudeController.text = lat.toStringAsFixed(6);
+      _longitudeController.text = lng.toStringAsFixed(6);
+      _manualLatController.text = lat.toStringAsFixed(6);
+      _manualLngController.text = lng.toStringAsFixed(6);
+      _radiusMeters = rad;
+      _pendingEditorData = null;
+      _geofenceIsDirty = false;
+    });
+    _suppressCoordsListener = false;
+    try {
+      _mapController.move(LatLng(_originalLatitude ?? 18.403817, _originalLongitude ?? 76.560943), 15.0);
+    } catch (_) {}
+  }
+
   // Departments State
-  final List<String> _departments = ['Computer Science', 'Electrical Engineering', 'Mechanical', 'Administration'];
+  final List<String> _departments = [];
   final _newDeptController = TextEditingController();
 
   // Security Settings State
@@ -261,6 +318,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _savedRadiusMeters = geofence['radius_meters'] != null ? rad : null;
             _geofenceType = type;
             _geofenceVertices = vertices;
+
+            _originalLatitude = geofence['latitude'] != null ? lat : null;
+            _originalLongitude = geofence['longitude'] != null ? lng : null;
+            _originalRadiusMeters = geofence['radius_meters'] != null ? rad : null;
+            _originalGeofenceType = type;
+            _originalGeofenceVertices = vertices;
+            _geofenceIsDirty = false;
+
             _pendingEditorData = null; // Reset pending data on fresh load
             _latitudeController.text = lat.toStringAsFixed(6);
             _longitudeController.text = lng.toStringAsFixed(6);
@@ -282,6 +347,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _savedRadiusMeters = null;
             _geofenceType = 'circle';
             _geofenceVertices = null;
+
+            _originalLatitude = null;
+            _originalLongitude = null;
+            _originalRadiusMeters = null;
+            _originalGeofenceType = 'circle';
+            _originalGeofenceVertices = null;
+            _geofenceIsDirty = false;
+
             _pendingEditorData = null;
             _hasGeofence = false;
             _latitudeController.text = '18.403817';
@@ -390,6 +463,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _savedLongitude = savedGf['longitude'] != null ? (savedGf['longitude'] as num).toDouble() : null;
             _savedRadiusMeters = savedGf['radius_meters'] != null ? (savedGf['radius_meters'] as num).toDouble() : null;
             _geofenceVertices = savedGf['vertices'];
+
+            _originalGeofenceType = savedGf['geofence_type'] ?? 'circle';
+            _originalLatitude = savedGf['latitude'] != null ? (savedGf['latitude'] as num).toDouble() : null;
+            _originalLongitude = savedGf['longitude'] != null ? (savedGf['longitude'] as num).toDouble() : null;
+            _originalRadiusMeters = savedGf['radius_meters'] != null ? (savedGf['radius_meters'] as num).toDouble() : null;
+            _originalGeofenceVertices = savedGf['vertices'];
+
             _pendingEditorData = null; // Reset after save
             _hasGeofence = true;
             _geofenceIsDirty = false;
@@ -983,29 +1063,67 @@ class _SettingsScreenState extends State<SettingsScreen> {
               final section = _sections[index];
               final sectionName = section['name'] as String;
               final isSelected = _activeSection == sectionName;
+
+              Color itemColor;
+              Color bg;
+              Color borderAccentColor;
+
+              if (isSelected) {
+                if (isDark) {
+                  itemColor = const Color(0xFFFFFFFF); // High-contrast White text & icon in dark mode
+                  bg = const Color(0xFF0056D2).withOpacity(0.10); // 10% opacity Sapphire Blue fill
+                  borderAccentColor = const Color(0xFF0056D2); // Sapphire Blue left accent indicator
+                } else {
+                  itemColor = AppColors.primary;
+                  bg = AppColors.primary.withOpacity(0.06);
+                  borderAccentColor = AppColors.primary;
+                }
+              } else {
+                itemColor = isDark
+                    ? const Color(0xFFA1A1AA) // Inactive Zinc grey preservation
+                    : AppColors.textSecondaryLight;
+                bg = Colors.transparent;
+                borderAccentColor = Colors.transparent;
+              }
+
               final tile = Material(
                 color: Colors.transparent,
-                child: ListTile(
-                  selected: isSelected,
-                  leading: Icon(
-                    section['icon'],
-                    color: isSelected ? AppColors.primary : Colors.grey,
-                    size: 20,
-                  ),
-                  title: Text(
-                    sectionName,
-                    style: TextStyle(
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                      fontSize: 13,
-                      color: isSelected
-                          ? AppColors.primary
-                          : (isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight),
+                child: Stack(
+                  children: [
+                    Container(
+                      color: bg,
+                      child: ListTile(
+                        selected: isSelected,
+                        leading: Icon(
+                          section['icon'],
+                          color: itemColor,
+                          size: 20,
+                        ),
+                        title: Text(
+                          sectionName,
+                          style: TextStyle(
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                            fontSize: 13,
+                            color: itemColor,
+                          ),
+                        ),
+                        trailing: isSelected
+                            ? Icon(Icons.chevron_right, color: itemColor, size: 16)
+                            : null,
+                        onTap: () => _switchSection(sectionName),
+                      ),
                     ),
-                  ),
-                  trailing: isSelected
-                      ? const Icon(Icons.chevron_right, color: AppColors.primary, size: 16)
-                      : null,
-                  onTap: () => _switchSection(sectionName),
+                    if (isSelected)
+                      Positioned(
+                        left: 0,
+                        top: 0,
+                        bottom: 0,
+                        child: Container(
+                          width: 3.0, // 3px thick left-border accent in Sapphire Blue
+                          color: borderAccentColor,
+                        ),
+                      ),
+                  ],
                 ),
               );
               // Wrap tour sections with Showcase widget
@@ -1257,6 +1375,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
               value: _selectedPolicyDeptId,
               isExpanded: true,
               underline: const SizedBox(),
+              icon: Icon(
+                Icons.keyboard_arrow_down_rounded,
+                color: Theme.of(context).brightness == Brightness.dark 
+                    ? AppColors.textSecondaryDark 
+                    : AppColors.textSecondaryLight,
+                size: 20,
+              ),
+              borderRadius: BorderRadius.circular(12),
+              dropdownColor: Theme.of(context).brightness == Brightness.dark 
+                  ? AppColors.surfaceDark 
+                  : AppColors.surfaceLight,
               items: [
                 const DropdownMenuItem<String?>(
                   value: null,
@@ -1731,7 +1860,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        CircularProgressIndicator(),
+                        PremisesBrandedLoader(),
                         SizedBox(height: 16),
                         Text('Initializing premium GIS configurator...'),
                       ],
@@ -1748,9 +1877,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       await _saveCustomGeofence(data);
                     },
                     onChanged: () {
-                      setState(() {
-                        _geofenceIsDirty = true;
-                      });
+                      // Handled by onChangedData
                     },
                     onChangedData: (Map<String, dynamic> data) {
                       // Store the latest editor state for use during save,
@@ -1767,7 +1894,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       setState(() {
                         _geofenceType = data['geofence_type'] ?? 'circle';
                         _geofenceVertices = data['vertices'];
-                        _geofenceIsDirty = true;
+                        _geofenceIsDirty = _calculateGeofenceDirtyState(data);
                       });
 
                       // Clear the guard after the synchronous build cycle.
@@ -1780,6 +1907,52 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ],
     );
+  }
+
+  bool _calculateGeofenceDirtyState(Map<String, dynamic> data) {
+    final String type = data['geofence_type'] ?? 'circle';
+    final String origType = _originalGeofenceType ?? 'circle';
+    if (type != origType) return true;
+
+    if (type == 'circle') {
+      final double? lat = data['latitude'] != null ? (data['latitude'] as num).toDouble() : null;
+      final double? lng = data['longitude'] != null ? (data['longitude'] as num).toDouble() : null;
+      final double? rad = data['radius_meters'] != null ? (data['radius_meters'] as num).toDouble() : null;
+
+      final double? origLat = _originalLatitude;
+      final double? origLng = _originalLongitude;
+      final double? origRad = _originalRadiusMeters;
+
+      if (origLat == null || origLng == null || origRad == null) {
+        return true;
+      }
+
+      if ((lat! - origLat).abs() > 0.000001) return true;
+      if ((lng! - origLng).abs() > 0.000001) return true;
+      if ((rad! - origRad).abs() > 0.1) return true;
+    } else {
+      final List<dynamic>? vertices = data['vertices'];
+      final List<dynamic>? origVertices = _originalGeofenceVertices;
+
+      if (vertices == null && origVertices == null) return false;
+      if (vertices == null || origVertices == null) return true;
+      if (vertices.length != origVertices.length) return true;
+
+      for (int i = 0; i < vertices.length; i++) {
+        final v = vertices[i];
+        final ov = origVertices[i];
+        if (v == null || ov == null) return true;
+        
+        final double lat = (v['latitude'] as num).toDouble();
+        final double lng = (v['longitude'] as num).toDouble();
+        final double olat = (ov['latitude'] as num).toDouble();
+        final double olng = (ov['longitude'] as num).toDouble();
+
+        if ((lat - olat).abs() > 0.000001) return true;
+        if ((lng - olng).abs() > 0.000001) return true;
+      }
+    }
+    return false;
   }
 
   String _formatNumber(int number) {

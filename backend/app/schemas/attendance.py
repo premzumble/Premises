@@ -34,6 +34,16 @@ class AttendanceRecordResponse(BaseModel):
     total_inside_minutes: int
     total_outside_minutes: int
 
+    is_overridden: bool = False
+    override_status: Optional[str] = None
+    override_reason: Optional[str] = None
+    override_remarks: Optional[str] = None
+    override_by: Optional[uuid.UUID] = None
+    override_at: Optional[datetime] = None
+    manual_check_in_time: Optional[datetime] = None
+    manual_check_out_time: Optional[datetime] = None
+    effective_working_hours: Optional[float] = None
+
     class Config:
         from_attributes = True
 
@@ -56,4 +66,17 @@ class AttendanceSummary(BaseModel):
     admin_email: str
     org_created_at: datetime
     org_status: str
+    today_manual_overrides_count: int = 0
     recent_activities: List[RecentActivityItem] = []
+
+
+class AttendanceOverrideCreate(BaseModel):
+    faculty_id: uuid.UUID
+    attendance_date: date
+    override_status: str
+    override_reason: str
+    override_remarks: str
+    manual_check_in_time: Optional[datetime] = None
+    manual_check_out_time: Optional[datetime] = None
+    effective_working_hours: Optional[float] = None
+    force_replace: bool = False

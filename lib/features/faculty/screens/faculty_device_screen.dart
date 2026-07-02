@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/api_service.dart';
 import '../../../core/design_system/app_colors.dart';
 import '../../../core/design_system/app_typography.dart';
+import '../../../core/widgets/premises_loader.dart';
 
 class FacultyDeviceScreen extends StatefulWidget {
   const FacultyDeviceScreen({super.key});
@@ -54,7 +55,7 @@ class _FacultyDeviceScreenState extends State<FacultyDeviceScreen> {
 
   Widget _buildContent(ThemeData theme, bool isDark) {
     if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(child: PremisesBrandedLoader());
     }
 
     if (_errorMessage != null) {

@@ -611,6 +611,15 @@ class ApiService {
   }
 
   // =========================================================================
+  // ADMIN WALKTHROUGH ENDPOINTS
+  // =========================================================================
+
+  /// POST /admin/walkthrough/complete
+  static Future<void> markWalkthroughCompleted() async {
+    await post('/admin/walkthrough/complete', {});
+  }
+
+  // =========================================================================
   // FORGOT PASSWORD FLOW
   // =========================================================================
 
@@ -631,6 +640,38 @@ class ApiService {
       'otp': otp,
       'new_password': newPassword,
     });
+  }
+
+  /// POST /admin/attendance/override
+  static Future<Map<String, dynamic>> overrideAttendance({
+    required String facultyId,
+    required String attendanceDate,
+    required String overrideStatus,
+    required String overrideReason,
+    required String overrideRemarks,
+    String? manualCheckInTime,
+    String? manualCheckOutTime,
+    double? effectiveWorkingHours,
+    bool forceReplace = false,
+  }) async {
+    final response = await post('/admin/attendance/override', {
+      'faculty_id': facultyId,
+      'attendance_date': attendanceDate,
+      'override_status': overrideStatus,
+      'override_reason': overrideReason,
+      'override_remarks': overrideRemarks,
+      if (manualCheckInTime != null) 'manual_check_in_time': manualCheckInTime,
+      if (manualCheckOutTime != null) 'manual_check_out_time': manualCheckOutTime,
+      if (effectiveWorkingHours != null) 'effective_working_hours': effectiveWorkingHours,
+      'force_replace': forceReplace,
+    });
+    return response;
+  }
+
+  /// POST /faculty/notifications/{notification_id}/acknowledge
+  static Future<Map<String, dynamic>> acknowledgeNotification(String notificationId) async {
+    final response = await post('/faculty/notifications/$notificationId/acknowledge', {});
+    return response;
   }
 }
 

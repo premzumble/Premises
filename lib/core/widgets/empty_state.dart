@@ -31,14 +31,18 @@ class AppEmptyState extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: isDark ? AppColors.surfaceDark : AppColors.primaryLight,
+                color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
                 shape: BoxShape.circle,
+                border: Border.all(
+                  color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+                  width: 1,
+                ),
               ),
               child: Icon(
                 icon,
-                size: 48,
+                size: 32,
                 color: AppColors.primary,
               ),
             ),

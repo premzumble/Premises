@@ -8,7 +8,9 @@ import '../../../core/design_system/app_colors.dart';
 import '../../../core/design_system/app_sizes.dart';
 import '../../../core/design_system/app_typography.dart';
 import '../../../core/widgets/button.dart';
+import '../../../core/widgets/dropdown.dart';
 import '../../../core/widgets/input.dart';
+import '../../../core/widgets/premises_loader.dart';
 
 // Registration mode chosen by the user
 enum _RegistrationRole { admin, faculty }
@@ -453,8 +455,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
         title: Text(_appBarTitle, style: AppTypography.h3),
         elevation: 0,
       ),
-      body: Center(
-        child: SingleChildScrollView(
+      body: Stack(
+        children: [
+          Center(
+            child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 500),
@@ -466,6 +470,23 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    // Brand Logo
+                    Center(
+                      child: Column(
+                        children: [
+                          ClipOval(
+                            child: Image.asset(
+                              'assets/images/logo.png',
+                              height: 48,
+                              width: 48,
+                              fit: BoxFit.cover,
+                              filterQuality: FilterQuality.high,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                        ],
+                      ),
+                    ),
                     // Step progress indicator
                     _buildStepTracker(theme),
                     const SizedBox(height: 28),
@@ -478,6 +499,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ),
           ),
         ),
+      ),
+      if (_isLoading)
+        Positioned.fill(
+          child: Container(
+            color: (isDark ? Colors.black : Colors.white).withOpacity(0.55),
+            child: const Center(
+              child: PremisesBrandedLoader(size: 90),
+            ),
+          ),
+        ),
+        ],
       ),
     );
   }
@@ -1037,12 +1069,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
               color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight,
             )),
         const SizedBox(height: 8),
-        DropdownButtonFormField<String>(
+        AppDropdownFormField<String>(
           value: _selectedDepartmentId,
-          decoration: const InputDecoration(
-              contentPadding:
-                  EdgeInsets.symmetric(horizontal: 16, vertical: 14)),
-          hint: const Text('Select your department'),
+          hint: 'Select your department',
           validator: (v) => v == null ? 'Department required.' : null,
           items: departments
               .map((d) => DropdownMenuItem<String>(
@@ -1190,11 +1219,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
         ),
         const SizedBox(height: 8),
-        DropdownButtonFormField<String>(
+        AppDropdownFormField<String>(
           value: value,
-          decoration: const InputDecoration(
-              contentPadding:
-                  EdgeInsets.symmetric(horizontal: 16, vertical: 14)),
           items: items
               .map((t) => DropdownMenuItem(value: t, child: Text(t)))
               .toList(),

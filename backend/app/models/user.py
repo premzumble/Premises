@@ -1,6 +1,6 @@
 from datetime import datetime
 import uuid
-from sqlalchemy import String, Text, ForeignKey, DateTime, UniqueConstraint, ForeignKeyConstraint, Uuid
+from sqlalchemy import String, Text, ForeignKey, DateTime, UniqueConstraint, ForeignKeyConstraint, Uuid, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database.database import Base
 
@@ -20,6 +20,12 @@ class Admin(Base):
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="ACTIVE")
     last_login_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    walkthrough_completed: Mapped[bool] = mapped_column(
+        "walkthrough_completed",
+        default=False,
+        server_default="false",
+        nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 

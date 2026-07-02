@@ -345,7 +345,8 @@ class FacultyService:
                 title=n.title,
                 message=n.message,
                 sent_at=n.sent_at,
-                read_at=n.read_at
+                read_at=n.read_at,
+                acknowledged_at=n.acknowledged_at
             )
             for n in notifications
         ]
@@ -430,7 +431,8 @@ class FacultyService:
                 "working_duration": duration_str,
                 "status": r.status,
                 "reason_submitted": reason.reason_type if reason else None,
-                "admin_decision": reason.status if reason else None
+                "admin_decision": reason.status if reason else None,
+                "is_overridden": r.is_overridden
             })
 
         return {

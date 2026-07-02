@@ -9,6 +9,7 @@ from app.core.exceptions import NotFoundException, ForbiddenException
 from app.models.geofence import Geofence, AttendancePolicy
 from app.models.attendance import AttendanceRecord, LocationEvent
 from app.models.request import Device
+from app.models.user import Faculty
 from app.schemas.attendance import LocationEventCreate
 from app.repositories.attendance_repo import AttendanceRepository
 from app.repositories.faculty_repo import FacultyRepository
@@ -357,8 +358,10 @@ class AttendanceService:
 
         for record in records:
             # Determine correct policy for this faculty's department
-            from app.models.user import Faculty
-            fac_stmt = select(Faculty.department_id).where(Faculty.id == record.faculty_id)
+            fac_stmt = select(Faculty.department_id).where(
+                Faculty.id == record.faculty_id,
+                Faculty.organization_id == organization_id
+            )
             fac_res = await self.db.execute(fac_stmt)
             dept_id = fac_res.scalar()
 

@@ -18,30 +18,91 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
-
-  <!-- iOS meta tags & icons -->
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="premises">
+  <meta name="description" content="Smart Attendance & Premises Monitoring">
+  <meta name="apple-mobile-web-app-title" content="Premises">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>premises</title>
+  <title>Premises</title>
   <link rel="manifest" href="manifest.json">
   <script src="https://maps.googleapis.com/maps/api/js?key="></script>
 </head>
 <body>
-  <!--
-    You can customize the "flutter_bootstrap.js" script.
-    This is useful to provide a custom configuration to the Flutter loader
-    or to give the user feedback during the initialization process.
-
-    For more details:
-    * https://docs.flutter.dev/platform-integration/web/initialization
-  -->
+  <div id="loading-indicator">
+    <div class="spinner-container">
+      <img class="logo" src="favicon.png" alt="Premises Logo">
+      <div class="ring"></div>
+    </div>
+  </div>
+  <style>
+    body {
+      background-color: #F9F9F6;
+      margin: 0;
+      padding: 0;
+    }
+    #loading-indicator {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background-color: #F9F9F6;
+      z-index: 99999;
+      transition: opacity 0.5s ease-out;
+    }
+    .spinner-container {
+      position: relative;
+      width: 90px;
+      height: 90px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    .logo {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background-color: #ffffff;
+      padding: 10px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+      animation: pulse 1.5s infinite ease-in-out;
+      z-index: 2;
+    }
+    .ring {
+      position: absolute;
+      width: 76px;
+      height: 76px;
+      border: 2.5px solid rgba(46, 61, 48, 0.15);
+      border-top: 2.5px solid #2E3D30;
+      border-radius: 50%;
+      animation: spin 2s linear infinite;
+      z-index: 1;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(0.92); opacity: 0.8; }
+      50% { transform: scale(1.04); opacity: 1; }
+    }
+  </style>
+  <script>
+    window.addEventListener('flutter-first-frame', function() {
+      var loader = document.getElementById('loading-indicator');
+      if (loader) {
+        loader.style.opacity = '0';
+        setTimeout(function() {
+          loader.remove();
+        }, 500);
+      }
+    });
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

@@ -59,18 +59,20 @@ class WelcomeDialog extends StatelessWidget {
               ),
               child: Column(
                 children: [
-                  // Logo icon
                   Container(
                     width: 68,
                     height: 68,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.16),
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(
-                      Icons.explore_outlined,
-                      color: Colors.white,
-                      size: 36,
+                    padding: const EdgeInsets.all(12),
+                    child: ClipOval(
+                      child: Image.asset(
+                        'assets/images/logo.png',
+                        fit: BoxFit.cover,
+                        filterQuality: FilterQuality.high,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 16),

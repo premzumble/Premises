@@ -12,6 +12,8 @@ import '../../../core/session_manager.dart';
 import '../walkthrough/controller/walkthrough_controller.dart';
 import '../walkthrough/walkthrough_steps_definition.dart';
 import '../walkthrough/widgets/walkthrough_tooltip.dart';
+import '../../../core/widgets/premises_loader.dart';
+import '../../../core/widgets/skeleton_loader.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -29,6 +31,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int _absentCount = 0;
   int _pendingRequestsCount = 0;
   int _totalFacultyCount = 0;
+  int _manualOverridesCount = 0;
   String _orgName = '';
   String _orgCode = '';
   String _adminEmail = '';
@@ -109,20 +112,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     try {
-      final res = await ApiService.get('/admin/dashboard-summary');
+      final bool shouldFetchPolicy = _allowedOutsideMinutes == null;
+      final List<Future<dynamic>> futuresToRun = [
+        ApiService.get('/admin/dashboard-summary'),
+      ];
+      if (shouldFetchPolicy) {
+        futuresToRun.add(
+          ApiService.fetchPolicy().catchError((e) {
+            debugPrint('Failed to fetch policy: $e');
+            return <String, dynamic>{};
+          }),
+        );
+      }
+
+      final results = await Future.wait(futuresToRun);
+      final res = results[0];
+      final Map<String, dynamic>? policyRes = shouldFetchPolicy && results.length > 1
+          ? (results[1] as Map<String, dynamic>?)
+          : null;
+
       if (res['success'] == true && res['data'] != null) {
         final data = res['data'];
-        
-        // Fetch active policy dynamically
-        Map<String, dynamic>? policyData;
-        try {
-          final policyRes = await ApiService.fetchPolicy();
-          if (policyRes['success'] == true) {
-            policyData = policyRes['data'];
-          }
-        } catch (e) {
-          debugPrint('Failed to fetch policy: $e');
-        }
+        final Map<String, dynamic>? policyData = policyRes != null && policyRes.isNotEmpty ? policyRes : null;
 
         if (mounted) {
           setState(() {
@@ -131,6 +142,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             _absentCount = data['absent_count'] ?? 0;
             _pendingRequestsCount = data['pending_requests_count'] ?? 0;
             _totalFacultyCount = data['total_faculty'] ?? 0;
+            _manualOverridesCount = data['today_manual_overrides_count'] ?? 0;
             _orgName = data['org_name'] ?? '';
             _orgCode = data['org_code'] ?? '';
             _adminEmail = data['admin_email'] ?? '';
@@ -201,9 +213,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     if (_isLoading) {
       return const Padding(
-        padding: EdgeInsets.all(48.0),
-        child: Center(
-          child: CircularProgressIndicator(),
+        padding: EdgeInsets.all(16.0),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SkeletonGridLoader(itemCount: 6),
+              SizedBox(height: 32),
+              Card(
+                child: Padding(
+                  padding: EdgeInsets.all(24.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SkeletonLoader(width: 200, height: 20, borderRadius: 4),
+                      SizedBox(height: 16),
+                      SkeletonLoader(width: 300, height: 14, borderRadius: 4),
+                      Divider(height: 32),
+                      SkeletonLoader(width: double.infinity, height: 50, borderRadius: 8),
+                      SizedBox(height: 16),
+                      SkeletonLoader(width: double.infinity, height: 50, borderRadius: 8),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -234,8 +269,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       );
     }
 
-    int gridCount = width < 600 ? 1 : (width < 1200 ? 2 : 5);
-    double childAspectRatio = width < 600 ? 3.0 : 1.8;
+    int gridCount = width < 600 ? 1 : (width < 900 ? 2 : (width < 1200 ? 3 : 6));
+    double childAspectRatio = width < 600 ? 3.0 : (width < 1200 ? 1.8 : 1.4);
 
     return SingleChildScrollView(
       child: Column(
@@ -420,6 +455,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   color: theme.colorScheme.primary,
                   onTap: () => context.go('/admin/faculty'),
                 ),
+                _buildDashboardKpiCard(
+                  title: "Today's Overrides",
+                  value: '$_manualOverridesCount',
+                  description: 'Manual overrides exceptions',
+                  trend: 'Exceptions',
+                  isPositive: true,
+                  icon: Icons.edit_calendar,
+                  color: Colors.indigo,
+                  onTap: _showTodayManualOverridesDialog,
+                ),
               ],
             ),
           ),
@@ -466,6 +511,221 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Future<void> _showTodayManualOverridesDialog() async {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 600, maxHeight: 500),
+            padding: const EdgeInsets.all(24),
+            child: FutureBuilder<Map<String, dynamic>>(
+              future: ApiService.get('/admin/attendance/overrides'),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const SizedBox(
+                    height: 200,
+                    child: Center(child: CircularProgressIndicator()),
+                  );
+                }
+
+                if (snapshot.hasError) {
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                      const SizedBox(height: 16),
+                      Text('Error loading overrides: ${snapshot.error}', style: const TextStyle(fontSize: 14)),
+                      const SizedBox(height: 20),
+                      TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
+                    ],
+                  );
+                }
+
+                final res = snapshot.data;
+                final success = res?['success'] == true;
+                final List<dynamic> list = success ? (res?['data'] ?? []) : [];
+
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.edit_calendar, color: Colors.indigo, size: 24),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                "Today's Manual Overrides",
+                                style: theme.textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  color: isDark ? Colors.white : Colors.black87,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              const Text(
+                                "Administrative overrides logged for today's roster",
+                                style: TextStyle(fontSize: 12, color: Colors.grey),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, size: 20),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                      ],
+                    ),
+                    const Divider(height: 32),
+                    if (list.isEmpty)
+                      const Expanded(
+                        child: Center(
+                          child: Text(
+                            "No manual overrides logged for today.",
+                            style: TextStyle(color: Colors.grey, fontSize: 13),
+                          ),
+                        ),
+                      )
+                    else
+                      Expanded(
+                        child: ListView.separated(
+                          itemCount: list.length,
+                          separatorBuilder: (context, index) => const Divider(height: 16),
+                          itemBuilder: (context, index) {
+                            final item = list[index];
+                            final acked = item['acknowledged_at'] != null;
+
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      item['faculty_name'] ?? 'Unknown Faculty',
+                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                    ),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: (item['status'] == 'PRESENT' ? AppColors.success : AppColors.danger).withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        item['status'] ?? 'ABSENT',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 11,
+                                          color: item['status'] == 'PRESENT' ? AppColors.success : AppColors.danger,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                Row(
+                                  children: [
+                                    const Text('Reason: ', style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.w600)),
+                                    Expanded(
+                                      child: Text(
+                                        item['override_reason'] ?? '-',
+                                        style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : Colors.black87),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    const Text('Remarks: ', style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.w600)),
+                                    Expanded(
+                                      child: Text(
+                                        item['override_remarks'] ?? '-',
+                                        style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : Colors.black87),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                if (item['effective_working_hours'] != null) ...[
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    children: [
+                                      const Text('Working Hours: ', style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.w600)),
+                                      Text(
+                                        '${item['effective_working_hours']} hours',
+                                        style: TextStyle(fontSize: 12, color: isDark ? Colors.white70 : Colors.black87),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    const Text('Faculty Acknowledgment: ', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                                    const SizedBox(width: 4),
+                                    if (acked)
+                                      const Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.check_circle, size: 12, color: Color(0xFF10B981)),
+                                          SizedBox(width: 4),
+                                          Text(
+                                            'Acknowledged',
+                                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF10B981)),
+                                          ),
+                                        ],
+                                      )
+                                    else
+                                      const Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.pending_actions, size: 12, color: Colors.grey),
+                                          SizedBox(width: 4),
+                                          Text(
+                                            'Not Yet Viewed',
+                                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey),
+                                          ),
+                                        ],
+                                      ),
+                                  ],
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      ),
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.pop(context),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: theme.colorScheme.primary,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        ),
+                        child: const Text('Dismiss', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -682,19 +942,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildPolicyRow(IconData icon, String label, String value) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final secondaryColor = isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight;
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      padding: const EdgeInsets.symmetric(vertical: 10.0),
       child: Row(
         children: [
-          Icon(icon, size: 16, color: Colors.grey),
+          Icon(icon, size: 16, color: secondaryColor),
           const SizedBox(width: 12),
-          Text(label, style: const TextStyle(color: Colors.grey, fontSize: 13)),
+          Text(label, style: TextStyle(color: secondaryColor, fontSize: 13, fontWeight: FontWeight.w500)),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(
-              value,
-              textAlign: TextAlign.end,
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.borderDark.withOpacity(0.3) : AppColors.primaryLight,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: isDark ? AppColors.borderDark : AppColors.borderLight,
+                    width: 0.5,
+                  ),
+                ),
+                child: Text(
+                  value,
+                  textAlign: TextAlign.end,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold, 
+                    fontSize: 11,
+                    color: isDark ? AppColors.textPrimaryDark : AppColors.primary,
+                  ),
+                ),
+              ),
             ),
           ),
         ],

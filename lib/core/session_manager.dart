@@ -53,6 +53,7 @@ class SessionManager {
   static String? _email;
   static String? _fullName;
   static String? _organizationId;
+  static bool? _walkthroughCompleted;
 
   // SharedPreferences keys
   static const _keyAccessToken = 'session_access_token';
@@ -62,6 +63,7 @@ class SessionManager {
   static const _keyEmail = 'session_email';
   static const _keyFullName = 'session_full_name';
   static const _keyOrgId = 'session_organization_id';
+  static const _keyWalkthroughCompleted = 'session_walkthrough_completed';
 
   // -----------------------------------------------------------------------
   // Getters (read from memory cache)
@@ -73,6 +75,7 @@ class SessionManager {
   static String? get email => _email;
   static String? get fullName => _fullName;
   static String? get organizationId => _organizationId;
+  static bool get walkthroughCompleted => _walkthroughCompleted ?? false;
 
   static bool get isLoggedIn => _accessToken != null && _accessToken!.isNotEmpty;
   static bool get isAdmin => _role == 'ADMIN';
@@ -90,6 +93,7 @@ class SessionManager {
     _email = prefs.getString(_keyEmail);
     _fullName = prefs.getString(_keyFullName);
     _organizationId = prefs.getString(_keyOrgId);
+    _walkthroughCompleted = prefs.getBool(_keyWalkthroughCompleted);
 
     // Restore geofence cache
     _geofenceLatitude = prefs.getDouble('session_geofence_latitude');
@@ -124,6 +128,7 @@ class SessionManager {
     required String email,
     required String fullName,
     required String organizationId,
+    bool? walkthroughCompleted,
   }) async {
     _accessToken = accessToken;
     _refreshToken = refreshToken;
@@ -132,6 +137,7 @@ class SessionManager {
     _email = email;
     _fullName = fullName;
     _organizationId = organizationId;
+    _walkthroughCompleted = walkthroughCompleted;
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyAccessToken, accessToken);
@@ -141,6 +147,20 @@ class SessionManager {
     await prefs.setString(_keyEmail, email);
     await prefs.setString(_keyFullName, fullName);
     await prefs.setString(_keyOrgId, organizationId);
+    if (walkthroughCompleted != null) {
+      await prefs.setBool(_keyWalkthroughCompleted, walkthroughCompleted);
+    } else {
+      await prefs.remove(_keyWalkthroughCompleted);
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Update walkthrough status
+  // -----------------------------------------------------------------------
+  static Future<void> markWalkthroughCompletedLocally() async {
+    _walkthroughCompleted = true;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyWalkthroughCompleted, true);
   }
 
   // -----------------------------------------------------------------------
@@ -154,6 +174,7 @@ class SessionManager {
     _email = null;
     _fullName = null;
     _organizationId = null;
+    _walkthroughCompleted = null;
     _geofenceLatitude = null;
     _geofenceLongitude = null;
     _geofenceRadius = null;
@@ -169,6 +190,7 @@ class SessionManager {
     await prefs.remove(_keyEmail);
     await prefs.remove(_keyFullName);
     await prefs.remove(_keyOrgId);
+    await prefs.remove(_keyWalkthroughCompleted);
     
     await prefs.remove('session_geofence_latitude');
     await prefs.remove('session_geofence_longitude');

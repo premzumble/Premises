@@ -27,6 +27,7 @@ class Notification(Base):
     message: Mapped[str] = mapped_column(Text, nullable=False)
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     read_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    acknowledged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="SENT")
     recipient_role: Mapped[str] = mapped_column(String(20), nullable=True)
     recipient_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=True)

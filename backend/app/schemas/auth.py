@@ -23,6 +23,7 @@ class UserInfo(BaseModel):
     email: EmailStr
     full_name: str
     organization_id: uuid.UUID
+    walkthrough_completed: Optional[bool] = None
 
 
 class TokenResponse(BaseModel):

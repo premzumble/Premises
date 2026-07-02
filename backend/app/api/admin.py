@@ -4,11 +4,15 @@ import uuid
 from fastapi import APIRouter, Depends, Query, Body
 from sqlalchemy import select, func, update, desc
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.dependencies import get_current_user, require_role, get_db
+from app.core.dependencies import (
+    get_current_user, require_role, get_db,
+    verify_department_owner, verify_faculty_owner, verify_device_owner,
+    verify_excusal_owner, verify_registration_request_owner, verify_device_swap_request_owner
+)
 from app.core.constants import UserRole, UserStatus, RequestStatus
 from app.core.exceptions import NotFoundException, ValidationException
 from app.schemas.base import StandardResponse
-from app.schemas.attendance import AttendanceSummary
+from app.schemas.attendance import AttendanceSummary, AttendanceOverrideCreate, AttendanceRecordResponse
 from app.repositories.attendance_repo import AttendanceRepository
 from app.models.user import Faculty
 from app.models.organization import Department, Organization
@@ -42,6 +46,25 @@ async def get_dashboard_summary(
         message="Dashboard attendance summary loaded successfully.",
         data=AttendanceSummary(**summary),
     )
+
+
+# ----------------------------------------------------------------------
+# POST /admin/walkthrough/complete
+# Mark the walkthrough as completed for the authenticated admin
+# ----------------------------------------------------------------------
+@router.post("/walkthrough/complete", response_model=StandardResponse[dict])
+async def complete_walkthrough(
+    current_user: Any = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    _role_guard: None = Depends(require_role([UserRole.ADMIN.value])),
+):
+    if not hasattr(current_user, "walkthrough_completed"):
+        raise ValidationException("Invalid user type for this operation.")
+        
+    current_user.walkthrough_completed = True
+    db.add(current_user)
+    await db.commit()
+    return StandardResponse(success=True, message="Walkthrough marked as completed.", data={})
 
 
 # ----------------------------------------------------------------------
@@ -291,6 +314,7 @@ async def approve_registration(
     current_user: Any = Depends(get_current_user),
     _guard: None = Depends(require_role([UserRole.ADMIN.value])),
 ):
+    await verify_registration_request_owner(db, request_id, current_user.organization_id)
     stmt = select(FacultyRegistrationRequest).where(
         FacultyRegistrationRequest.id == request_id,
         FacultyRegistrationRequest.organization_id == current_user.organization_id
@@ -308,7 +332,7 @@ async def approve_registration(
     # Activate Faculty
     await db.execute(
         update(Faculty)
-        .where(Faculty.id == req.faculty_id)
+        .where(Faculty.id == req.faculty_id, Faculty.organization_id == current_user.organization_id)
         .values(status=UserStatus.ACTIVE.value, registered_at=datetime.now(timezone.utc))
     )
 
@@ -349,6 +373,7 @@ async def reject_registration(
     current_user: Any = Depends(get_current_user),
     _guard: None = Depends(require_role([UserRole.ADMIN.value])),
 ):
+    await verify_registration_request_owner(db, request_id, current_user.organization_id)
     stmt = select(FacultyRegistrationRequest).where(
         FacultyRegistrationRequest.id == request_id,
         FacultyRegistrationRequest.organization_id == current_user.organization_id
@@ -367,7 +392,7 @@ async def reject_registration(
     # Deactivate Faculty
     await db.execute(
         update(Faculty)
-        .where(Faculty.id == req.faculty_id)
+        .where(Faculty.id == req.faculty_id, Faculty.organization_id == current_user.organization_id)
         .values(status=UserStatus.INACTIVE.value)
     )
 
@@ -407,6 +432,7 @@ async def approve_device_swap(
     current_user: Any = Depends(get_current_user),
     _guard: None = Depends(require_role([UserRole.ADMIN.value])),
 ):
+    await verify_device_swap_request_owner(db, request_id, current_user.organization_id)
     stmt = select(DeviceChangeRequest).where(
         DeviceChangeRequest.id == request_id,
         DeviceChangeRequest.organization_id == current_user.organization_id
@@ -481,6 +507,7 @@ async def reject_device_swap(
     current_user: Any = Depends(get_current_user),
     _guard: None = Depends(require_role([UserRole.ADMIN.value])),
 ):
+    await verify_device_swap_request_owner(db, request_id, current_user.organization_id)
     stmt = select(DeviceChangeRequest).where(
         DeviceChangeRequest.id == request_id,
         DeviceChangeRequest.organization_id == current_user.organization_id
@@ -536,6 +563,7 @@ async def approve_excusal(
     current_user: Any = Depends(get_current_user),
     _role_guard: None = Depends(require_role([UserRole.ADMIN.value])),
 ):
+    await verify_excusal_owner(db, request_id, current_user.organization_id)
     stmt = select(ReasonRequest).where(
         ReasonRequest.id == request_id,
         ReasonRequest.organization_id == current_user.organization_id
@@ -552,7 +580,10 @@ async def approve_excusal(
 
     # Recalculate and update the associated attendance record status
     if req.attendance_record_id:
-        rec_stmt = select(AttendanceRecord).where(AttendanceRecord.id == req.attendance_record_id)
+        rec_stmt = select(AttendanceRecord).where(
+            AttendanceRecord.id == req.attendance_record_id,
+            AttendanceRecord.organization_id == current_user.organization_id
+        )
         rec_res = await db.execute(rec_stmt)
         record = rec_res.scalars().first()
         if record:
@@ -622,10 +653,7 @@ async def reject_excusal(
     current_user: Any = Depends(get_current_user),
     _guard: None = Depends(require_role([UserRole.ADMIN.value])),
 ):
-    stmt = select(ReasonRequest).where(
-        ReasonRequest.id == request_id,
-        ReasonRequest.organization_id == current_user.organization_id
-    )
+    await verify_excusal_owner(db, request_id, current_user.organization_id)
     res = await db.execute(stmt)
     req = res.scalars().first()
     if not req:
@@ -853,6 +881,7 @@ async def toggle_faculty_status(
     current_user: Any = Depends(get_current_user),
     _role_guard: None = Depends(require_role([UserRole.ADMIN.value])),
 ):
+    await verify_faculty_owner(db, faculty_id, current_user.organization_id)
     stmt = select(Faculty).where(
         Faculty.id == faculty_id,
         Faculty.organization_id == current_user.organization_id
@@ -867,7 +896,7 @@ async def toggle_faculty_status(
         # Deactivate devices
         await db.execute(
             update(Device)
-            .where(Device.faculty_id == faculty_id)
+            .where(Device.faculty_id == faculty_id, Device.organization_id == current_user.organization_id)
             .values(is_active=False)
         )
         msg = f"Faculty {faculty.full_name} deactivated successfully."
@@ -890,6 +919,10 @@ class AuditLogItem(BaseModel):
     actor_type: str
     action: str
     details: str
+    entity_type: Optional[str] = None
+    entity_id: Optional[uuid.UUID] = None
+    old_value: Optional[dict] = None
+    new_value: Optional[dict] = None
 
 @router.get("/audit-logs", response_model=StandardResponse[List[AuditLogItem]])
 async def get_audit_logs(
@@ -901,7 +934,7 @@ async def get_audit_logs(
     from app.models.user import Admin
     org_id = current_user.organization_id
     
-    stmt = select(AuditLog).where(AuditLog.organization_id == org_id).order_by(AuditLog.created_at.desc()).limit(100)
+    stmt = select(AuditLog).where(AuditLog.organization_id == org_id).order_by(AuditLog.created_at.desc()).limit(200)
     res = await db.execute(stmt)
     logs = res.scalars().all()
 
@@ -941,7 +974,11 @@ async def get_audit_logs(
                 actor=actor_name,
                 actor_type=l.actor_type,
                 action=l.action,
-                details=details
+                details=details,
+                entity_type=l.entity_type,
+                entity_id=l.entity_id,
+                old_value=l.old_value,
+                new_value=l.new_value
             )
         )
 
@@ -971,9 +1008,25 @@ async def export_report(
     import io
     import csv
     org_id = current_user.organization_id
+    await verify_department_owner(db, department_id, org_id)
+    await verify_faculty_owner(db, faculty_id, org_id)
     
-    # Base query for Attendance Records
-    if "Faculty-wise" not in report_type and "Directory" not in report_type and "Logs" not in report_type:
+    # Base query for Attendance Records vs Devices vs Faculty Directory
+    if "Device" in report_type:
+        from app.models.request import Device
+        stmt = (
+            select(Device, Faculty, Department)
+            .join(Faculty, Device.faculty_id == Faculty.id)
+            .outerjoin(Department, Faculty.department_id == Department.id)
+            .where(Device.organization_id == org_id)
+        )
+        if department_id:
+            stmt = stmt.where(Faculty.department_id == department_id)
+        if faculty_id:
+            stmt = stmt.where(Faculty.id == faculty_id)
+        stmt = stmt.order_by(Faculty.full_name)
+        
+    elif "Faculty-wise" not in report_type and "Directory" not in report_type and "Logs" not in report_type:
         stmt = (
             select(AttendanceRecord, Faculty, Department)
             .join(Faculty, AttendanceRecord.faculty_id == Faculty.id)
@@ -991,7 +1044,7 @@ async def export_report(
             if "Daily" in report_type:
                 today = datetime.now().astimezone().date()
                 stmt = stmt.where(AttendanceRecord.attendance_date == today)
-            elif "Weekly" in report_type:
+            elif "Weekly" in report_type or "Audits" in report_type:
                 end_dt = datetime.now().astimezone().date()
                 start_dt = end_dt - timedelta(days=7)
                 stmt = stmt.where(AttendanceRecord.attendance_date.between(start_dt, end_dt))
@@ -1004,6 +1057,13 @@ async def export_report(
             stmt = stmt.where(Faculty.department_id == department_id)
         if faculty_id:
             stmt = stmt.where(Faculty.id == faculty_id)
+            
+        # Specific filters for Overrides and Exceptions
+        if "Override" in report_type:
+            stmt = stmt.where(AttendanceRecord.is_overridden == True)
+        elif "Exception" in report_type or "Geofence" in report_type:
+            stmt = stmt.where(AttendanceRecord.status.in_(["OUTSIDE", "ABSENT"]))
+            
         if attendance_status and attendance_status != "All":
             stmt = stmt.where(AttendanceRecord.status == attendance_status)
             
@@ -1033,8 +1093,32 @@ async def export_report(
         buffer = io.StringIO()
         writer = csv.writer(buffer)
         
-        if "Faculty-wise" not in report_type and "Directory" not in report_type and "Logs" not in report_type:
-            writer.writerow(["Faculty Name", "Email Address", "Department", "Date", "Check In", "Check Out", "Status", "Inside Minutes", "Outside Minutes"])
+        if "Device" in report_type:
+            writer.writerow(["Faculty Name", "Email Address", "Department", "Device Model", "Platform", "OS Version", "Manufacturer", "Is Active", "Registered Date"])
+            yield buffer.getvalue().encode("utf-8")
+            buffer.seek(0)
+            buffer.truncate(0)
+            
+            result_stream = await db.stream(stmt)
+            async for row in result_stream:
+                dev, fac, dept = row
+                writer.writerow([
+                    fac.full_name,
+                    fac.email,
+                    dept.name if dept else "No Department",
+                    dev.device_model or "-",
+                    dev.platform,
+                    dev.os_version or "-",
+                    dev.manufacturer or "-",
+                    "Active" if dev.is_active else "Inactive",
+                    dev.registered_at.isoformat() if dev.registered_at else "-"
+                ])
+                yield buffer.getvalue().encode("utf-8")
+                buffer.seek(0)
+                buffer.truncate(0)
+                
+        elif "Faculty-wise" not in report_type and "Directory" not in report_type and "Logs" not in report_type:
+            writer.writerow(["Faculty Name", "Email Address", "Department", "Date", "Check In", "Check Out", "Status", "Inside Minutes", "Outside Minutes", "Override Type", "Override Details", "Working Hours"])
             yield buffer.getvalue().encode("utf-8")
             buffer.seek(0)
             buffer.truncate(0)
@@ -1042,6 +1126,10 @@ async def export_report(
             result_stream = await db.stream(stmt)
             async for row in result_stream:
                 r, fac, dept = row
+                override_type = "Manual Override" if r.is_overridden else "Automatic Geofence"
+                override_details = f"{r.override_status} ({r.override_reason}) - {r.override_remarks}" if r.is_overridden else "-"
+                working_hours = f"{r.effective_working_hours} hours" if (r.is_overridden and r.effective_working_hours is not None) else "-"
+                
                 writer.writerow([
                     fac.full_name,
                     fac.email,
@@ -1051,7 +1139,10 @@ async def export_report(
                     r.last_exit_time.isoformat() if r.last_exit_time else "-",
                     r.status,
                     r.total_inside_minutes,
-                    r.total_outside_minutes
+                    r.total_outside_minutes,
+                    override_type,
+                    override_details,
+                    working_hours
                 ])
                 yield buffer.getvalue().encode("utf-8")
                 buffer.seek(0)
@@ -1105,36 +1196,117 @@ class DailyAttendanceItem(BaseModel):
     inside_mins: int
     outside_mins: int
     timeline: List[DailyTimelineEvent]
+    is_overridden: bool = False
+    override_status: Optional[str] = None
+    override_reason: Optional[str] = None
+    override_remarks: Optional[str] = None
+    manual_check_in_time: Optional[datetime] = None
+    manual_check_out_time: Optional[datetime] = None
+    effective_working_hours: Optional[float] = None
+    faculty_id: str = ""
+    acknowledged_at: Optional[datetime] = None
 
 @router.get("/attendance-logs", response_model=StandardResponse[dict])
 async def get_attendance_logs(
     target_date: Optional[date] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=100),
+    search_query: Optional[str] = Query(None),
+    department_id: Optional[uuid.UUID] = Query(None),
+    status: Optional[str] = Query(None),
+    is_overridden: Optional[bool] = Query(None),
+    campus_status: Optional[str] = Query(None),
     current_user: Any = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     _role_guard: None = Depends(require_role([UserRole.ADMIN.value])),
 ):
     query_date = target_date or datetime.now(timezone.utc).date()
     org_id = current_user.organization_id
-    # Auto-close expired records before fetching logs
+    await verify_department_owner(db, department_id, org_id)
+    
     from app.services.attendance_service import AttendanceService
     attendance_service = AttendanceService(db)
     await attendance_service.close_all_expired_records(org_id)
 
-    # 1. Count total active faculty
-    count_stmt = select(func.count(Faculty.id)).where(
-        Faculty.organization_id == org_id,
-        Faculty.status == "ACTIVE"
-    )
+    from app.models.attendance import AttendanceRecord
+    from sqlalchemy import or_, and_
+
+    # Base count and list select statements
+    # Join AttendanceRecord if we need to filter by status / is_overridden / campus_status
+    need_join = status is not None or is_overridden is not None or campus_status is not None
+    if need_join:
+        count_stmt = select(func.count(Faculty.id)).outerjoin(
+            AttendanceRecord,
+            and_(
+                Faculty.id == AttendanceRecord.faculty_id,
+                AttendanceRecord.attendance_date == query_date
+            )
+        ).where(
+            Faculty.organization_id == org_id,
+            Faculty.status == "ACTIVE"
+        )
+        fac_stmt = select(Faculty).outerjoin(
+            AttendanceRecord,
+            and_(
+                Faculty.id == AttendanceRecord.faculty_id,
+                AttendanceRecord.attendance_date == query_date
+            )
+        ).where(
+            Faculty.organization_id == org_id,
+            Faculty.status == "ACTIVE"
+        )
+        
+        # Apply filters
+        if status:
+            if status == "ABSENT":
+                # ABSENT means record has status ABSENT or no record exists
+                fac_stmt = fac_stmt.where(or_(AttendanceRecord.status == "ABSENT", AttendanceRecord.id == None))
+                count_stmt = count_stmt.where(or_(AttendanceRecord.status == "ABSENT", AttendanceRecord.id == None))
+            else:
+                fac_stmt = fac_stmt.where(AttendanceRecord.status == status)
+                count_stmt = count_stmt.where(AttendanceRecord.status == status)
+                
+        if is_overridden is not None:
+            fac_stmt = fac_stmt.where(AttendanceRecord.is_overridden == is_overridden)
+            count_stmt = count_stmt.where(AttendanceRecord.is_overridden == is_overridden)
+            
+        if campus_status:
+            if campus_status == "INSIDE":
+                fac_stmt = fac_stmt.where(AttendanceRecord.status == "INSIDE")
+                count_stmt = count_stmt.where(AttendanceRecord.status == "INSIDE")
+            elif campus_status == "OUTSIDE":
+                fac_stmt = fac_stmt.where(or_(AttendanceRecord.status == "OUTSIDE", AttendanceRecord.id == None))
+                count_stmt = count_stmt.where(or_(AttendanceRecord.status == "OUTSIDE", AttendanceRecord.id == None))
+    else:
+        count_stmt = select(func.count(Faculty.id)).where(
+            Faculty.organization_id == org_id,
+            Faculty.status == "ACTIVE"
+        )
+        fac_stmt = select(Faculty).where(
+            Faculty.organization_id == org_id,
+            Faculty.status == "ACTIVE"
+        )
+
+    # Apply search filter: name, email, or phone
+    if search_query:
+        search_filter = or_(
+            Faculty.full_name.ilike(f"%{search_query}%"),
+            Faculty.email.ilike(f"%{search_query}%"),
+            Faculty.phone_number.ilike(f"%{search_query}%")
+        )
+        fac_stmt = fac_stmt.where(search_filter)
+        count_stmt = count_stmt.where(search_filter)
+
+    # Department filter
+    if department_id:
+        fac_stmt = fac_stmt.where(Faculty.department_id == department_id)
+        count_stmt = count_stmt.where(Faculty.department_id == department_id)
+
+    # Run queries
     count_res = await db.execute(count_stmt)
     total_items = count_res.scalar() or 0
 
-    # 2. Fetch paginated faculty list
-    fac_stmt = select(Faculty).where(
-        Faculty.organization_id == org_id,
-        Faculty.status == "ACTIVE"
-    ).order_by(Faculty.full_name).offset((page - 1) * page_size).limit(page_size)
+    fac_stmt = fac_stmt.order_by(Faculty.full_name).offset((page - 1) * page_size).limit(page_size)
     fac_res = await db.execute(fac_stmt)
     faculty_list = fac_res.scalars().all()
 
@@ -1160,6 +1332,15 @@ async def get_attendance_logs(
     )
     rec_res = await db.execute(rec_stmt)
     records = {r.faculty_id: r for r in rec_res.scalars().all()}
+
+    # 3b. Fetch override notifications for these faculty today
+    notif_stmt = select(Notification).where(
+        Notification.organization_id == org_id,
+        Notification.faculty_id.in_(faculty_ids),
+        Notification.type == "ATTENDANCE_OVERRIDE"
+    )
+    notif_res = await db.execute(notif_stmt)
+    notifications = {n.faculty_id: n for n in notif_res.scalars().all()}
 
     # 4. Fetch location events for these faculty
     day_start = datetime.combine(query_date, datetime.min.time(), tzinfo=timezone.utc)
@@ -1197,6 +1378,15 @@ async def get_attendance_logs(
         last_exit = "-"
         inside_mins = 0
         outside_mins = 0
+        
+        is_overridden = False
+        override_status = None
+        override_reason = None
+        override_remarks = None
+        manual_check_in_time = None
+        manual_check_out_time = None
+        effective_working_hours = None
+        acknowledged_at = None
 
         if record:
             status = record.status
@@ -1206,6 +1396,18 @@ async def get_attendance_logs(
                 last_exit = record.last_exit_time.isoformat()
             inside_mins = record.total_inside_minutes
             outside_mins = record.total_outside_minutes
+            
+            is_overridden = record.is_overridden
+            override_status = record.override_status
+            override_reason = record.override_reason
+            override_remarks = record.override_remarks
+            manual_check_in_time = record.manual_check_in_time
+            manual_check_out_time = record.manual_check_out_time
+            effective_working_hours = record.effective_working_hours
+            
+            notif = notifications.get(fac.id)
+            if notif:
+                acknowledged_at = notif.acknowledged_at
 
         logs.append(
             DailyAttendanceItem(
@@ -1216,9 +1418,30 @@ async def get_attendance_logs(
                 last_exit=last_exit,
                 inside_mins=inside_mins,
                 outside_mins=outside_mins,
-                timeline=timeline
+                timeline=timeline,
+                is_overridden=is_overridden,
+                override_status=override_status,
+                override_reason=override_reason,
+                override_remarks=override_remarks,
+                manual_check_in_time=manual_check_in_time,
+                manual_check_out_time=manual_check_out_time,
+                effective_working_hours=effective_working_hours,
+                faculty_id=str(fac.id),
+                acknowledged_at=acknowledged_at
             )
         )
+
+    # Calculate daily KPI summaries
+    kpi_present = await db.scalar(select(func.count(AttendanceRecord.id)).where(AttendanceRecord.organization_id == org_id, AttendanceRecord.attendance_date == query_date, AttendanceRecord.status == "PRESENT")) or 0
+    kpi_half_day = await db.scalar(select(func.count(AttendanceRecord.id)).where(AttendanceRecord.organization_id == org_id, AttendanceRecord.attendance_date == query_date, AttendanceRecord.status == "HALF_DAY")) or 0
+    kpi_overrides = await db.scalar(select(func.count(AttendanceRecord.id)).where(AttendanceRecord.organization_id == org_id, AttendanceRecord.attendance_date == query_date, AttendanceRecord.is_overridden == True)) or 0
+    kpi_inside = await db.scalar(select(func.count(AttendanceRecord.id)).where(AttendanceRecord.organization_id == org_id, AttendanceRecord.attendance_date == query_date, AttendanceRecord.status == "INSIDE")) or 0
+    kpi_outside = await db.scalar(select(func.count(AttendanceRecord.id)).where(AttendanceRecord.organization_id == org_id, AttendanceRecord.attendance_date == query_date, AttendanceRecord.status == "OUTSIDE")) or 0
+    
+    total_active_faculty = await db.scalar(select(func.count(Faculty.id)).where(Faculty.organization_id == org_id, Faculty.status == "ACTIVE")) or 0
+    kpi_absent = total_active_faculty - (kpi_present + kpi_half_day + kpi_inside + kpi_outside)
+    if kpi_absent < 0:
+        kpi_absent = 0
 
     return StandardResponse(
         success=True,
@@ -1227,7 +1450,217 @@ async def get_attendance_logs(
             "items": logs,
             "page": page,
             "page_size": page_size,
-            "total": total_items
+            "total": total_items,
+            "kpis": {
+                "present": kpi_present,
+                "absent": kpi_absent,
+                "half_day": kpi_half_day,
+                "overrides": kpi_overrides,
+                "inside": kpi_inside,
+                "outside": kpi_outside
+            }
         }
+    )
+
+
+@router.post("/attendance/override", response_model=StandardResponse[dict])
+async def override_attendance(
+    data: AttendanceOverrideCreate,
+    current_user: Any = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    _role_guard: None = Depends(require_role([UserRole.ADMIN.value])),
+):
+    await verify_faculty_owner(db, data.faculty_id, current_user.organization_id)
+    from app.models.user import Admin
+    # 1. Fetch Target Faculty
+    fac_stmt = select(Faculty).where(
+        Faculty.id == data.faculty_id,
+        Faculty.organization_id == current_user.organization_id
+    )
+    fac_res = await db.execute(fac_stmt)
+    faculty = fac_res.scalar_one_or_none()
+    if not faculty:
+        raise NotFoundException("Faculty member not found.")
+
+    # 2. Check if already overridden
+    stmt = select(AttendanceRecord).where(
+        AttendanceRecord.faculty_id == data.faculty_id,
+        AttendanceRecord.attendance_date == data.attendance_date,
+        AttendanceRecord.organization_id == current_user.organization_id
+    )
+    res = await db.execute(stmt)
+    record = res.scalar_one_or_none()
+
+    if record and record.is_overridden and not data.force_replace:
+        return StandardResponse(
+            success=False,
+            message="This attendance has already been manually overridden.",
+            data={"already_overridden": True}
+        )
+
+    # Fetch Admin Name
+    admin_stmt = select(Admin).where(Admin.id == current_user.id)
+    admin_res = await db.execute(admin_stmt)
+    admin = admin_res.scalar_one_or_none()
+    admin_name = admin.full_name if admin else "Admin"
+
+    previous_status = record.status if record else "ABSENT"
+
+    # Map override_status parameter to database status value
+    db_status = "ABSENT"
+    if data.override_status in ["Full Day Present", "PRESENT"]:
+        db_status = "PRESENT"
+    elif data.override_status in ["Half Day Present", "Half Day Absent", "HALF_DAY"]:
+        db_status = "HALF_DAY"
+
+    # 3. Create or Update record
+    if not record:
+        record = AttendanceRecord(
+            organization_id=current_user.organization_id,
+            faculty_id=data.faculty_id,
+            attendance_date=data.attendance_date,
+            status=db_status,
+            first_entry_time=data.manual_check_in_time,
+            last_exit_time=data.manual_check_out_time,
+            total_inside_minutes=480 if db_status == "PRESENT" else (240 if db_status == "HALF_DAY" else 0),
+            is_overridden=True,
+            override_status=data.override_status,
+            override_reason=data.override_reason,
+            override_remarks=data.override_remarks,
+            override_by=current_user.id,
+            override_at=datetime.now(timezone.utc),
+            manual_check_in_time=data.manual_check_in_time,
+            manual_check_out_time=data.manual_check_out_time,
+            effective_working_hours=data.effective_working_hours
+        )
+        db.add(record)
+    else:
+        record.status = db_status
+        record.is_overridden = True
+        record.override_status = data.override_status
+        record.override_reason = data.override_reason
+        record.override_remarks = data.override_remarks
+        record.override_by = current_user.id
+        record.override_at = datetime.now(timezone.utc)
+        record.manual_check_in_time = data.manual_check_in_time
+        record.manual_check_out_time = data.manual_check_out_time
+        record.effective_working_hours = data.effective_working_hours
+        if data.manual_check_in_time:
+            record.first_entry_time = data.manual_check_in_time
+        if data.manual_check_out_time:
+            record.last_exit_time = data.manual_check_out_time
+
+    await db.flush()
+
+    # 4. Detailed polymorphic Audit Log
+    audit_log = AuditLog(
+        organization_id=current_user.organization_id,
+        actor_type="ADMIN",
+        actor_id=current_user.id,
+        action="ATTENDANCE_OVERRIDE",
+        entity_type="ATTENDANCE_RECORD",
+        entity_id=record.id,
+        old_value={"status": previous_status},
+        new_value={
+            "admin_name": admin_name,
+            "admin_id": str(current_user.id),
+            "faculty_name": faculty.full_name,
+            "faculty_id": str(faculty.id),
+            "previous_status": previous_status,
+            "new_status": data.override_status,
+            "override_reason": data.override_reason,
+            "remarks": data.override_remarks,
+            "date": str(data.attendance_date),
+            "time": datetime.now(timezone.utc).isoformat(),
+            "manual_check_in": data.manual_check_in_time.isoformat() if data.manual_check_in_time else None,
+            "manual_check_out": data.manual_check_out_time.isoformat() if data.manual_check_out_time else None,
+            "effective_working_hours": data.effective_working_hours,
+            "source": "Admin Portal"
+        }
+    )
+    db.add(audit_log)
+
+    # 5. Create Notification for Faculty
+    notif = Notification(
+        organization_id=current_user.organization_id,
+        faculty_id=data.faculty_id,
+        type="ATTENDANCE_OVERRIDE",
+        title="Attendance Updated",
+        message=(
+            f"Your attendance for {data.attendance_date} has been manually updated by your administrator.\n\n"
+            f"Status: {data.override_status}\n"
+            f"Reason: {data.override_reason}\n"
+            f"Remarks: {data.override_remarks}"
+        ),
+        status="SENT",
+        recipient_role="FACULTY",
+        recipient_id=data.faculty_id
+    )
+    db.add(notif)
+
+    await db.commit()
+
+    return StandardResponse(
+        success=True,
+        message="Attendance record manually overridden and logged successfully.",
+        data={"record_id": str(record.id)}
+    )
+
+
+@router.get("/attendance/overrides", response_model=StandardResponse[List[dict]])
+async def get_manual_overrides(
+    target_date: Optional[date] = Query(None),
+    current_user: Any = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    _role_guard: None = Depends(require_role([UserRole.ADMIN.value])),
+):
+    query_date = target_date or datetime.now(timezone.utc).date()
+    from app.models.user import Faculty
+    from app.models.notification import Notification
+    
+    stmt = select(AttendanceRecord, Faculty.full_name).join(
+        Faculty, Faculty.id == AttendanceRecord.faculty_id
+    ).where(
+        AttendanceRecord.organization_id == current_user.organization_id,
+        AttendanceRecord.attendance_date == query_date,
+        AttendanceRecord.is_overridden == True
+    ).order_by(AttendanceRecord.updated_at.desc())
+    
+    res = await db.execute(stmt)
+    results = res.all()
+    
+    faculty_ids = [r[0].faculty_id for r in results]
+    notifications = {}
+    if faculty_ids:
+        notif_stmt = select(Notification).where(
+            Notification.organization_id == current_user.organization_id,
+            Notification.faculty_id.in_(faculty_ids),
+            Notification.type == "ATTENDANCE_OVERRIDE"
+        )
+        notif_res = await db.execute(notif_stmt)
+        notifications = {n.faculty_id: n.acknowledged_at for n in notif_res.scalars().all()}
+    
+    data = []
+    for record, full_name in results:
+        data.append({
+            "id": str(record.id),
+            "faculty_id": str(record.faculty_id),
+            "faculty_name": full_name,
+            "attendance_date": record.attendance_date.isoformat(),
+            "status": record.status,
+            "override_status": record.override_status,
+            "override_reason": record.override_reason,
+            "override_remarks": record.override_remarks,
+            "override_at": record.override_at.isoformat() if record.override_at else None,
+            "manual_check_in_time": record.manual_check_in_time.isoformat() if record.manual_check_in_time else None,
+            "manual_check_out_time": record.manual_check_out_time.isoformat() if record.manual_check_out_time else None,
+            "effective_working_hours": record.effective_working_hours,
+            "acknowledged_at": notifications.get(record.faculty_id).isoformat() if notifications.get(record.faculty_id) else None
+        })
+        
+    return StandardResponse(
+        success=True,
+        message="Manual overrides loaded successfully.",
+        data=data
     )
 

@@ -6,10 +6,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.constants import UserRole
-from app.core.exceptions import AuthException, ForbiddenException
+from app.core.exceptions import AuthException, ForbiddenException, NotFoundException
 from app.core.security import decode_token
 from app.database.session import get_db
 from app.models.user import Admin, Faculty
+from app.models.organization import Department
+from app.models.request import Device, ReasonRequest, FacultyRegistrationRequest, DeviceChangeRequest
 
 security_scheme = HTTPBearer(auto_error=False)
 
@@ -58,3 +60,76 @@ class RoleChecker:
 
 def require_role(roles: list) -> RoleChecker:
     return RoleChecker(roles)
+
+
+async def verify_department_owner(db: AsyncSession, department_id: Any, org_id: Any) -> None:
+    if not department_id:
+        return
+    stmt = select(Department).where(
+        Department.id == department_id,
+        Department.organization_id == org_id
+    )
+    res = await db.execute(stmt)
+    if not res.scalars().first():
+        raise NotFoundException("Department not found in your organization.")
+
+
+async def verify_faculty_owner(db: AsyncSession, faculty_id: Any, org_id: Any) -> None:
+    if not faculty_id:
+        return
+    stmt = select(Faculty).where(
+        Faculty.id == faculty_id,
+        Faculty.organization_id == org_id
+    )
+    res = await db.execute(stmt)
+    if not res.scalars().first():
+        raise NotFoundException("Faculty member not found in your organization.")
+
+
+async def verify_device_owner(db: AsyncSession, device_id: Any, org_id: Any) -> None:
+    if not device_id:
+        return
+    stmt = select(Device).where(
+        Device.id == device_id,
+        Device.organization_id == org_id
+    )
+    res = await db.execute(stmt)
+    if not res.scalars().first():
+        raise NotFoundException("Device not found in your organization.")
+
+
+async def verify_excusal_owner(db: AsyncSession, request_id: Any, org_id: Any) -> None:
+    if not request_id:
+        return
+    stmt = select(ReasonRequest).where(
+        ReasonRequest.id == request_id,
+        ReasonRequest.organization_id == org_id
+    )
+    res = await db.execute(stmt)
+    if not res.scalars().first():
+        raise NotFoundException("Excusal request not found in your organization.")
+
+
+async def verify_registration_request_owner(db: AsyncSession, request_id: Any, org_id: Any) -> None:
+    if not request_id:
+        return
+    stmt = select(FacultyRegistrationRequest).where(
+        FacultyRegistrationRequest.id == request_id,
+        FacultyRegistrationRequest.organization_id == org_id
+    )
+    res = await db.execute(stmt)
+    if not res.scalars().first():
+        raise NotFoundException("Registration request not found in your organization.")
+
+
+async def verify_device_swap_request_owner(db: AsyncSession, request_id: Any, org_id: Any) -> None:
+    if not request_id:
+        return
+    stmt = select(DeviceChangeRequest).where(
+        DeviceChangeRequest.id == request_id,
+        DeviceChangeRequest.organization_id == org_id
+    )
+    res = await db.execute(stmt)
+    if not res.scalars().first():
+        raise NotFoundException("Device swap request not found in your organization.")
+

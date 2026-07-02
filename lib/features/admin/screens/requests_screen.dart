@@ -3,6 +3,8 @@ import '../../../core/design_system/app_colors.dart';
 import '../../../core/design_system/app_typography.dart';
 import '../../../core/widgets/button.dart';
 import '../../../core/api_service.dart';
+import '../../../core/widgets/premises_loader.dart';
+import '../../../core/widgets/skeleton_loader.dart';
 
 class RequestsScreen extends StatefulWidget {
   const RequestsScreen({super.key});
@@ -262,7 +264,10 @@ class _RequestsScreenState extends State<RequestsScreen> with SingleTickerProvid
           // Tab views
           Expanded(
             child: _isLoading && _registrationRequests.isEmpty && _deviceRequests.isEmpty && _reasonRequests.isEmpty
-                ? const Center(child: CircularProgressIndicator())
+                ? const Padding(
+                    padding: EdgeInsets.all(16.0),
+                    child: SkeletonCardList(itemCount: 4),
+                  )
                 : TabBarView(
                     controller: _tabController,
                     children: [

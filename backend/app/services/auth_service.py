@@ -88,11 +88,14 @@ class AuthService:
         if admin_check or faculty_check:
             raise ConflictException("An account with this email address already exists.")
 
-        # 2. Check if OTP already pending for this email — delete stale record
+        # 2. Check if OTP already pending for this email — check rate limit and delete stale record
         stmt = select(OtpVerification).where(OtpVerification.email == data.email)
         res = await self.db.execute(stmt)
         existing_otp = res.scalars().first()
         if existing_otp:
+            if datetime.now(timezone.utc) - existing_otp.created_at < timedelta(seconds=60):
+                logger.warning(f"Resend OTP requested too soon for admin registration: {data.email}")
+                raise ValidationException("Please wait at least 60 seconds before requesting another verification code.")
             await self.db.delete(existing_otp)
             await self.db.flush()
 
@@ -117,7 +120,7 @@ class AuthService:
         await self.db.commit()
 
         # Send OTP via email
-        EmailService.send_otp_email(data.email, otp, purpose="REGISTRATION")
+        await EmailService.send_otp_email(self.db, data.email, otp, purpose="REGISTRATION")
 
         # In development: print OTP to terminal
         print(f"\n{'='*50}")
@@ -211,11 +214,14 @@ class AuthService:
 
         # Send Welcome Email with Org Code
         # We use local variables instead of model attributes to avoid async expiry issues after commit
-        EmailService.send_welcome_email(
+        await EmailService.send_welcome_email(
+            db=self.db,
             email=reg_data["email"],
             admin_name=reg_data["admin_name"],
             org_name=reg_data["org_name"],
-            org_code=org_code
+            org_code=org_code,
+            organization_id=organization.id,
+            user_id=admin.id
         )
 
         logger.info(f"Successfully created organization '{organization.name}' (ID: {organization.id}) and admin '{admin.full_name}' (ID: {admin.id})")
@@ -570,6 +576,9 @@ class AuthService:
                         existing_otp_res = await self.db.execute(existing_otp_stmt)
                         existing_otp = existing_otp_res.scalars().first()
                         if existing_otp:
+                            if datetime.now(timezone.utc) - existing_otp.created_at < timedelta(seconds=60):
+                                logger.warning(f"Resend OTP requested too soon for device binding: {email}")
+                                raise ValidationException("Please wait at least 60 seconds before requesting another verification code.")
                             await self.db.delete(existing_otp)
                             await self.db.flush()
 
@@ -593,7 +602,14 @@ class AuthService:
                         await self.db.commit()
 
                         # Send email
-                        EmailService.send_otp_email(email, otp, purpose="REGISTRATION")
+                        await EmailService.send_otp_email(
+                            self.db,
+                            email,
+                            otp,
+                            purpose="DEVICE_BINDING",
+                            organization_id=faculty.organization_id,
+                            user_id=faculty.id
+                        )
 
                         # Print OTP to logs
                         print(f"\n{'='*50}")
@@ -689,15 +705,10 @@ class AuthService:
         res = await self.db.execute(stmt)
         existing = res.scalars().first()
 
-        if existing and existing.created_at > ten_mins_ago:
-            # This is a simplified rate limit since we only have one record per email.
-            # In a real system we'd have a separate table for request logs.
-            # For now, let's just delete the old one and allow a retry if it's been a while,
-            # but maybe we should track multiple attempts.
-            pass
-
-        # 3. Cleanup existing and generate new OTP
         if existing:
+            if datetime.now(timezone.utc) - existing.created_at < timedelta(seconds=60):
+                logger.warning(f"Resend OTP requested too soon for password reset: {email}")
+                raise ValidationException("Please wait at least 60 seconds before requesting another verification code.")
             await self.db.delete(existing)
             await self.db.flush()
 
@@ -712,7 +723,29 @@ class AuthService:
         await self.db.commit()
 
         # 4. Send Email
-        EmailService.send_otp_email(email, otp, purpose="PASSWORD_RESET")
+        fac_stmt = select(Faculty).where(Faculty.email == email)
+        fac_res = await self.db.execute(fac_stmt)
+        fac = fac_res.scalars().first()
+        
+        user_id = fac.id if fac else None
+        org_id = fac.organization_id if fac else None
+        
+        if not fac:
+            adm_stmt = select(Admin).where(Admin.email == email)
+            adm_res = await self.db.execute(adm_stmt)
+            adm = adm_res.scalars().first()
+            if adm:
+                user_id = adm.id
+                org_id = adm.organization_id
+
+        await EmailService.send_otp_email(
+            self.db,
+            email,
+            otp,
+            purpose="PASSWORD_RESET",
+            organization_id=org_id,
+            user_id=user_id
+        )
 
         print(f"\n{'='*50}")
         print(f"[DEV] PASSWORD RESET OTP FOR {email}: {otp}")

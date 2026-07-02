@@ -1,6 +1,6 @@
 from datetime import datetime, date
 import uuid
-from sqlalchemy import String, ForeignKey, DateTime, UniqueConstraint, ForeignKeyConstraint, Double, Integer, Date, Uuid, Index
+from sqlalchemy import String, ForeignKey, DateTime, UniqueConstraint, ForeignKeyConstraint, Double, Integer, Date, Uuid, Index, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database.database import Base
 
@@ -27,6 +27,17 @@ class AttendanceRecord(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="ABSENT")
     total_inside_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     total_outside_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    
+    is_overridden: Mapped[bool] = mapped_column(nullable=False, default=False)
+    override_status: Mapped[str] = mapped_column(String(30), nullable=True)
+    override_reason: Mapped[str] = mapped_column(Text, nullable=True)
+    override_remarks: Mapped[str] = mapped_column(Text, nullable=True)
+    override_by: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=True)
+    override_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    manual_check_in_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    manual_check_out_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    effective_working_hours: Mapped[float] = mapped_column(Double, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 

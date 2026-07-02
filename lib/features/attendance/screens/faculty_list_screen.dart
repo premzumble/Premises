@@ -3,11 +3,14 @@ import '../../../core/design_system/app_colors.dart';
 import '../../../core/design_system/app_typography.dart';
 import '../../../core/widgets/bottom_sheets.dart';
 import '../../../core/widgets/button.dart';
+import '../../../core/widgets/dropdown.dart';
 import '../../../core/widgets/filter_panel.dart';
 import '../../../core/widgets/search_bar.dart';
 import '../../../core/widgets/status_chip.dart';
 import '../../../core/widgets/table.dart';
 import '../../../core/api_service.dart';
+import '../../../core/widgets/premises_loader.dart';
+import '../../../core/widgets/skeleton_loader.dart';
 
 class FacultyListScreen extends StatefulWidget {
   final String? filterStatus;
@@ -29,16 +32,7 @@ class _FacultyListScreenState extends State<FacultyListScreen> {
   bool _isLoading = true;
   String? _errorMessage;
 
-  final List<String> _departments = [
-    'All',
-    'Computer Science',
-    'Electrical Engineering',
-    'Mechanical',
-    'Administration',
-    'MCA',
-    'BBA',
-    'BCA'
-  ];
+  final List<String> _departments = ['All'];
   final List<String> _statuses = ['All', 'Active', 'Pending Approval', 'Inactive'];
 
   List<Map<String, String>> _facultyList = [];
@@ -51,7 +45,28 @@ class _FacultyListScreenState extends State<FacultyListScreen> {
         _selectedStatus = 'Active';
       }
     }
+    _loadDepartments();
     _fetchFacultyRoster();
+  }
+
+  Future<void> _loadDepartments() async {
+    try {
+      final depts = await ApiService.fetchDepartments();
+      if (mounted) {
+        setState(() {
+          _departments.clear();
+          _departments.add('All');
+          for (var dept in depts) {
+            final name = dept['name'] as String?;
+            if (name != null && !_departments.contains(name)) {
+              _departments.add(name);
+            }
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('Failed to load departments: $e');
+    }
   }
 
   Future<void> _fetchFacultyRoster() async {
@@ -289,15 +304,15 @@ class _FacultyListScreenState extends State<FacultyListScreen> {
           child: LayoutBuilder(
             builder: (context, constraints) {
               final isWide = constraints.maxWidth > 500;
-              final deptDropdown = DropdownButtonFormField<String>(
+              final deptDropdown = AppDropdownFormField<String>(
                 value: _selectedDept,
-                decoration: const InputDecoration(labelText: 'Department', contentPadding: EdgeInsets.symmetric(horizontal: 12)),
+                label: 'Department',
                 items: _departments.map((d) => DropdownMenuItem(value: d, child: Text(d, style: const TextStyle(fontSize: 13)))).toList(),
                 onChanged: (val) => setState(() => _selectedDept = val!),
               );
-              final statusDropdown = DropdownButtonFormField<String>(
+              final statusDropdown = AppDropdownFormField<String>(
                 value: _selectedStatus,
-                decoration: const InputDecoration(labelText: 'Account Status', contentPadding: EdgeInsets.symmetric(horizontal: 12)),
+                label: 'Account Status',
                 items: _statuses.map((s) => DropdownMenuItem(value: s, child: Text(s, style: const TextStyle(fontSize: 13)))).toList(),
                 onChanged: (val) => setState(() => _selectedStatus = val!),
               );
@@ -323,10 +338,12 @@ class _FacultyListScreenState extends State<FacultyListScreen> {
           ),
         ),
 
-        // Table
         Expanded(
           child: _isLoading
-              ? const Center(child: CircularProgressIndicator())
+              ? const Padding(
+                  padding: EdgeInsets.all(16.0),
+                  child: SkeletonCardList(itemCount: 4),
+                )
               : _errorMessage != null && _facultyList.isEmpty
                   ? Center(
                       child: Column(

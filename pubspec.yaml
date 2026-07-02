@@ -45,6 +45,7 @@ dependencies:
   flutter_local_notifications: ^18.0.1
 
   showcaseview: ^5.1.0
+  google_fonts: ^8.1.0
 
 dev_dependencies:
   flutter_test:
@@ -67,6 +68,8 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+  assets:
+    - assets/images/logo.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:

@@ -3,6 +3,8 @@ import '../../../core/api_service.dart';
 import '../../../core/design_system/app_colors.dart';
 import '../../../core/design_system/app_typography.dart';
 import '../../../core/session_manager.dart';
+import '../../../core/widgets/premises_loader.dart';
+import '../../../core/widgets/skeleton_loader.dart';
 
 class FacultyNotificationsScreen extends StatefulWidget {
   const FacultyNotificationsScreen({super.key});
@@ -107,7 +109,10 @@ class _FacultyNotificationsScreenState extends State<FacultyNotificationsScreen>
 
   Widget _buildContent(bool isDark, ThemeData theme) {
     if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return const Padding(
+        padding: EdgeInsets.all(16.0),
+        child: SkeletonCardList(itemCount: 3),
+      );
     }
 
     if (_errorMessage != null) {
@@ -195,6 +200,53 @@ class _FacultyNotificationsScreenState extends State<FacultyNotificationsScreen>
                           _formatSentAt(n['sent_at']),
                           style: TextStyle(fontSize: 11, color: isDark ? AppColors.textMutedDark : AppColors.textMutedLight),
                         ),
+                        
+                        // Faculty acknowledgement action for manual overrides
+                        if (type == 'ATTENDANCE_OVERRIDE') ...[
+                          const SizedBox(height: 12),
+                          if (n['acknowledged_at'] == null)
+                            ElevatedButton.icon(
+                              onPressed: () async {
+                                final notifId = n['id'] as String;
+                                try {
+                                  await ApiService.acknowledgeNotification(notifId);
+                                  setState(() {
+                                    n['acknowledged_at'] = DateTime.now().toUtc().toIso8601String();
+                                  });
+                                } catch (e) {
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text('Failed to acknowledge: $e')),
+                                    );
+                                  }
+                                }
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primary,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                elevation: 0,
+                              ),
+                              icon: const Icon(Icons.check, size: 16),
+                              label: const Text('Acknowledge Receipt', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                            )
+                          else
+                            Row(
+                              children: [
+                                const Icon(Icons.check_circle, size: 16, color: Color(0xFF10B981)),
+                                const SizedBox(width: 6),
+                                const Text(
+                                  'Receipt Acknowledged',
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF10B981),
+                                  ),
+                                ),
+                              ],
+                            ),
+                        ],
                       ],
                     ),
                   ),
@@ -211,6 +263,10 @@ class _FacultyNotificationsScreenState extends State<FacultyNotificationsScreen>
     IconData icon;
     Color color;
     switch (type) {
+      case 'ATTENDANCE_OVERRIDE':
+        icon = Icons.edit_calendar_outlined;
+        color = Colors.indigo;
+        break;
       case 'SECURITY':
       case 'ALERT':
         icon = Icons.security_outlined;

@@ -25,6 +25,6 @@ from app.models.request import (                                                
 )
 from app.models.notification import Notification                                    # noqa: F401
 from app.models.log import AuditLog, PolicyChangeHistory                            # noqa: F401
-from app.models.otp import OtpVerification                                          # noqa: F401
+from app.models.otp import OtpVerification, EmailLog                                  # noqa: F401
 
 __all__ = ["Base"]

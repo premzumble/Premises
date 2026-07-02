@@ -173,6 +173,15 @@ class AttendanceRepository(BaseRepository[AttendanceRecord]):
         activities.sort(key=lambda x: x["time"], reverse=True)
         recent_activities = activities[:3]
 
+        # 7. Count today's manual overrides
+        override_stmt = select(func.count(AttendanceRecord.id)).where(
+            AttendanceRecord.organization_id == organization_id,
+            AttendanceRecord.attendance_date == target_date,
+            AttendanceRecord.is_overridden == True
+        )
+        override_res = await self.db.execute(override_stmt)
+        today_manual_overrides_count = override_res.scalar() or 0
+
         return {
             "present_count": present,
             "half_day_count": half_day,
@@ -185,5 +194,6 @@ class AttendanceRepository(BaseRepository[AttendanceRecord]):
             "admin_email": admin_email,
             "org_created_at": org_created_at,
             "org_status": org_status,
+            "today_manual_overrides_count": today_manual_overrides_count,
             "recent_activities": recent_activities
         }

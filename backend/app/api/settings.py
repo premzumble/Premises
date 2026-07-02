@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.dependencies import get_current_user, require_role, get_db
+from app.core.dependencies import get_current_user, require_role, get_db, verify_department_owner
 from app.core.constants import UserRole
 from app.core.exceptions import NotFoundException, ConflictException
 from app.schemas.base import StandardResponse
@@ -31,6 +31,7 @@ async def get_policy(
 ):
     repo = GeofenceRepository(db)
     if department_id:
+        await verify_department_owner(db, department_id, current_user.organization_id)
         policy = await repo.get_policy_by_dept(current_user.organization_id, department_id)
     else:
         policy = await repo.get_policy_by_org(current_user.organization_id)
@@ -56,6 +57,7 @@ async def update_policy(
     target_dept_id = data.department_id
 
     if target_dept_id:
+        await verify_department_owner(db, target_dept_id, current_user.organization_id)
         policy = await db.execute(
             select(AttendancePolicy).where(
                 AttendancePolicy.organization_id == current_user.organization_id,

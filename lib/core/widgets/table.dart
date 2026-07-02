@@ -24,7 +24,7 @@ class AppTable extends StatelessWidget {
       decoration: BoxDecoration(
         color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
         borderRadius: BorderRadius.circular(AppSizes.radiusLg),
-        border: Border.all(color: isDark ? AppColors.borderDark : AppColors.borderLight),
+        border: Border.all(color: isDark ? const Color(0xFF334155) : const Color(0xFFF1F5F9)),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -32,7 +32,7 @@ class AppTable extends StatelessWidget {
         children: [
           // Table Header
           Container(
-            color: isDark ? AppColors.backgroundDark : AppColors.backgroundLight,
+            color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
             child: Row(
               children: headers
@@ -50,7 +50,11 @@ class AppTable extends StatelessWidget {
                   .toList(),
             ),
           ),
-          const Divider(height: 1, thickness: 1, color: AppColors.borderLight),
+          Divider(
+            height: 1,
+            thickness: 1,
+            color: isDark ? const Color(0xFF334155) : const Color(0xFFF1F5F9),
+          ),
 
           // Table Rows
           ListView.separated(
@@ -60,7 +64,7 @@ class AppTable extends StatelessWidget {
             separatorBuilder: (context, index) => Divider(
               height: 1,
               thickness: 1,
-              color: isDark ? AppColors.borderDark : AppColors.borderLight,
+              color: isDark ? const Color(0xFF334155) : const Color(0xFFF1F5F9),
             ),
             itemBuilder: (context, index) {
               final rowCells = rows[index];

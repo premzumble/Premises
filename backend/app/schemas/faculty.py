@@ -56,6 +56,7 @@ class NotificationResponse(BaseModel):
     message: str
     sent_at: datetime
     read_at: Optional[datetime] = None
+    acknowledged_at: Optional[datetime] = None
 
 class DeviceHistoryResponse(BaseModel):
     id: uuid.UUID
