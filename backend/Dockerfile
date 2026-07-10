@@ -39,7 +39,7 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application source code
 # We only copy the 'app' directory and other necessary files
-COPY app /app/app
+COPY . /app
 # If there are assets or static files, include them here.
 # Based on analysis, we need 'app' package.
 

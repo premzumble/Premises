@@ -46,8 +46,6 @@ alembic/versions/*.pyc
 test_run.txt
 pytest_out.txt
 pytest_approvals_out.txt
-alembic.ini
-alembic/
 tests/
 # We copy requirements.txt explicitly in Dockerfile, but for clarity:
 # .env should NEVER be in image
