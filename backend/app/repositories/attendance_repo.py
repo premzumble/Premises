@@ -183,7 +183,7 @@ class AttendanceRepository(BaseRepository[AttendanceRecord]):
         today_manual_overrides_count = override_res.scalar() or 0
 
         return {
-            "present_count": present,
+            "present_count": present + half_day,
             "half_day_count": half_day,
             "absent_count": absent,
             "outside_count": outside_count,
