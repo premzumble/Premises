@@ -1128,7 +1128,12 @@ async def export_report(
                 r, fac, dept = row
                 override_type = "Manual Override" if r.is_overridden else "Automatic Geofence"
                 override_details = f"{r.override_status} ({r.override_reason}) - {r.override_remarks}" if r.is_overridden else "-"
-                working_hours = f"{r.effective_working_hours} hours" if (r.is_overridden and r.effective_working_hours is not None) else "-"
+                if r.is_overridden and r.effective_working_hours is not None:
+                    working_hours = f"{r.effective_working_hours:.2f} hours"
+                elif r.total_inside_minutes > 0:
+                    working_hours = f"{r.total_inside_minutes / 60.0:.2f} hours"
+                else:
+                    working_hours = "-"
                 
                 writer.writerow([
                     fac.full_name,
@@ -1598,6 +1603,20 @@ async def override_attendance(
     )
     db.add(notif)
 
+    # 6. Dispatch Email notification
+    from app.services.email_service import EmailService
+    await EmailService.send_override_email(
+        db=db,
+        email=faculty.email,
+        faculty_name=faculty.full_name,
+        attendance_date=str(data.attendance_date),
+        override_status=data.override_status,
+        override_reason=data.override_reason,
+        override_remarks=data.override_remarks,
+        organization_id=current_user.organization_id,
+        user_id=current_user.id
+    )
+
     await db.commit()
 
     return StandardResponse(
@@ -1662,5 +1681,128 @@ async def get_manual_overrides(
         success=True,
         message="Manual overrides loaded successfully.",
         data=data
+    )
+
+
+class AttendanceSimulationCreate(BaseModel):
+    faculty_id: uuid.UUID
+    is_entry: bool
+    event_time: Optional[datetime] = None
+
+
+@router.get("/faculty", response_model=StandardResponse[List[dict]])
+async def get_simulator_faculty(
+    status: Optional[str] = Query(None),
+    limit: int = Query(100),
+    current_user: Any = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    _role_guard: None = Depends(require_role([UserRole.ADMIN.value])),
+):
+    # Map APPROVED to ACTIVE if sent by simulator
+    db_status = "ACTIVE"
+    if status == "APPROVED":
+        db_status = "ACTIVE"
+    elif status:
+        db_status = status
+
+    from app.repositories.faculty_repo import FacultyRepository
+    repo = FacultyRepository(db)
+    faculty_list = await repo.get_multi_by_org(current_user.organization_id, status=db_status, limit=limit)
+    
+    results = []
+    for f in faculty_list:
+        dept_name = "No Department"
+        if f.department_id:
+            dept_stmt = select(Department.name).where(Department.id == f.department_id)
+            dept_res = await db.execute(dept_stmt)
+            dept_name = dept_res.scalar() or "No Department"
+            
+        results.append({
+            "id": str(f.id),
+            "first_name": f.full_name,
+            "last_name": "",
+            "email": f.email,
+            "department": dept_name,
+        })
+        
+    return StandardResponse(
+        success=True,
+        message="Faculty fetched for simulator.",
+        data=results
+    )
+
+
+@router.post("/attendance/simulate-event", response_model=StandardResponse[dict])
+async def simulate_event(
+    data: AttendanceSimulationCreate,
+    current_user: Any = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    _role_guard: None = Depends(require_role([UserRole.ADMIN.value])),
+):
+    await verify_faculty_owner(db, data.faculty_id, current_user.organization_id)
+    
+    from app.services.attendance_service import AttendanceService
+    from app.schemas.attendance import LocationEventCreate
+    from app.core.constants import LocationEventType
+    
+    att_service = AttendanceService(db)
+    geofences = await att_service.geofence_repo.get_active_by_org(current_user.organization_id)
+    
+    # Default to Stanford Quad coords if no active geofence
+    latitude = 37.4275
+    longitude = -122.1697
+    
+    if data.is_entry:
+        if geofences:
+            gf = geofences[0]
+            if gf.geofence_type == "circle":
+                latitude = gf.latitude or 37.4275
+                longitude = gf.longitude or -122.1697
+            elif gf.geofence_type == "polygon" and gf.vertices:
+                latitude = gf.vertices[0].latitude
+                longitude = gf.vertices[0].longitude
+    else:
+        if geofences:
+            gf = geofences[0]
+            if gf.geofence_type == "circle":
+                latitude = (gf.latitude or 37.4275) + 0.1
+                longitude = (gf.longitude or -122.1697) + 0.1
+            elif gf.geofence_type == "polygon" and gf.vertices:
+                latitude = gf.vertices[0].latitude + 0.1
+                longitude = gf.vertices[0].longitude + 0.1
+        else:
+            latitude = 38.4275
+            longitude = -121.1697
+
+    active_device = await att_service.faculty_repo.get_active_device(data.faculty_id)
+    device_id = active_device.device_identifier if active_device else "SIMULATED_DEVICE"
+    
+    evt_time = data.event_time or datetime.now(timezone.utc)
+    
+    evt_data = LocationEventCreate(
+        event_type=LocationEventType.ENTER_CAMPUS if data.is_entry else LocationEventType.EXIT_CAMPUS,
+        latitude=latitude,
+        longitude=longitude,
+        event_time=evt_time,
+        device_identifier=device_id
+    )
+    
+    event = await att_service.register_location_event(data.faculty_id, current_user.organization_id, evt_data)
+    
+    # Recalculate working hours for response
+    record = await att_service.attendance_repo.get_record(data.faculty_id, evt_time.astimezone().date())
+    
+    return StandardResponse(
+        success=True,
+        message="Simulated location event processed successfully.",
+        data={
+            "id": str(event.id) if event else None,
+            "event_type": event.event_type if event else None,
+            "latitude": latitude,
+            "longitude": longitude,
+            "event_time": evt_time.isoformat(),
+            "working_hours": record.total_inside_minutes / 60.0 if record else 0.0,
+            "status": record.status if record else "ABSENT"
+        }
     )
 

@@ -201,7 +201,10 @@ class _FacultyHistoryScreenState extends State<FacultyHistoryScreen> {
           Expanded(
             child: Card(
               color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
-              child: _buildHistoryContent(theme, isDark),
+              child: RefreshIndicator(
+                onRefresh: _loadHistory,
+                child: _buildHistoryContent(theme, isDark),
+              ),
             ),
           ),
         ],

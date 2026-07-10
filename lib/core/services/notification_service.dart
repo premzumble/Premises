@@ -5,8 +5,12 @@ class NotificationService {
   NotificationService._();
 
   static final FlutterLocalNotificationsPlugin _notificationsPlugin = FlutterLocalNotificationsPlugin();
+  static bool _initialized = false;
 
   static Future<void> initialize() async {
+    if (_initialized) return;
+    _initialized = true;
+
     const AndroidInitializationSettings initializationSettingsAndroid = AndroidInitializationSettings('@mipmap/ic_launcher');
     const DarwinInitializationSettings initializationSettingsDarwin = DarwinInitializationSettings(
       requestAlertPermission: true,

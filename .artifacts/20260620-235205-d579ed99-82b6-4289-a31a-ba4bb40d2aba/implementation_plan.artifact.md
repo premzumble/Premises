@@ -1,77 +1,64 @@
-# Implementation Plan - Department-wise Working Hours
+# Implementation Plan - Core Attendance Restoration & Stability
 
-Enable each department within an organization to have its own independent working schedule and attendance policies.
+Restore the critical geofence monitoring and attendance workflow while preserving production improvements.
 
 ## User Review Required
 
-- **Automatic Inheritance**: Faculty will automatically use the schedule of their assigned department. If a department doesn't have a specific schedule set (unlikely after migration), they fallback to the organization's default.
-- **Migration Strategy**: Existing organization-wide policies will be copied to every existing department during migration to ensure no disruption.
+> [!IMPORTANT]
+> - I am separating the **Synchronization State** (Internet) from the **Attendance Monitoring State** (GPS/Geofence) in the UI to provide accurate feedback.
+> - `LocationService` will now wait for geofence configuration to arrive from the server instead of defaulting to an "Outside Premises" state.
 
 ## Proposed Changes
 
-### Database & Models
+### Core & Infrastructure
 
-#### [geofence.py](file:///E:/Premises/premises/backend/app/models/geofence.py)
-- Modify `AttendancePolicy`:
-    - Remove `unique=True` from `organization_id`.
-    - Add `department_id: Mapped[Optional[uuid.UUID]] = mapped_column(Uuid, ForeignKey("departments.id", ondelete="CASCADE"), nullable=True)`.
-    - Add `UniqueConstraint("organization_id", "department_id", name="uniq_org_dept_policy")`.
+#### [sync_service.dart](file:///E:/Premises/premises/lib/core/services/sync_service.dart)
+- Add `_initialized` guard to prevent double stream listeners.
+- Only trigger auto-sync if genuinely online.
 
-#### [organization.py](file:///E:/Premises/premises/backend/app/models/organization.py)
-- Update `Department` model to include a relationship to `AttendancePolicy`.
+#### [location_service.dart](file:///E:/Premises/premises/lib/core/services/location_service.dart)
+- **State Resilience**: Initialize `isInsideGeofence` as `null`.
+- **Logic Fix**: In `_handlePositionUpdate`, if geofence data is missing, set `statusMessage` to "Waiting for organization geofence configuration..." instead of bailing silently.
+- **Auto-Recovery**: Add `forceReevaluate()` to be called whenever geofence cache is updated.
+- **Redundancy Cleanup**: Remove the redundant 30s background sync timer (already handled by Dashboard and SyncService).
 
----
-
-### Backend Services & Repositories
-
-#### [geofence_repo.py](file:///E:/Premises/premises/backend/app/repositories/geofence_repo.py)
-- Add `get_policy_by_dept(org_id, dept_id)` which looks for a department-specific policy or falls back to the org default.
-
-#### [attendance_service.py](file:///E:/Premises/premises/backend/app/services/attendance_service.py)
-- Update `register_location_event`: Look up the faculty's department policy instead of the organization's.
-- Update `close_all_expired_records`: Iterate over records and resolve the correct policy for each faculty's department.
-- Update `evaluate_and_close_record`: Accept policy as an argument (already does, but ensure caller passes correct one).
+### Backend - Attendance History
 
 #### [faculty_service.py](file:///E:/Premises/premises/backend/app/services/faculty_service.py)
-- Update `get_dashboard_summary`: Fetch and return the department-specific timings for the faculty's dashboard.
+- Audit `list_attendance_history` for multi-tenant isolation logic. Ensure `faculty_id` and `organization_id` lookup is robust.
 
----
+### UI & Dashboard
 
-### API & Schemas
+#### [faculty_dashboard_screen.dart](file:///E:/Premises/premises/lib/features/faculty/screens/faculty_dashboard_screen.dart)
+- **UI Separation**:
+    - The **Sync Status Bar** now strictly shows internet/sync status.
+    - The **Location Banner** now shows GPS and Geofence specific states.
+- **Detailed States**: Display "GPS Accuracy: OK", "Geofence Monitoring: Active" when conditions are met.
+- **Refresh Flow**: Ensure `LocationService.forceReevaluate()` is called after `_loadDashboard` finishes caching geofence data.
 
-#### [geofence.py (schemas)](file:///E:/Premises/premises/backend/app/schemas/geofence.py)
-- Update `AttendancePolicyResponse` and `AttendancePolicyUpdate` to include `department_id`.
+### Branding Consistency
 
-#### [settings.py (api)](file:///E:/Premises/premises/backend/app/api/settings.py)
-- Update `get_policy` and `update_policy` to accept an optional `department_id` query parameter.
-
----
-
-### Frontend (Admin Settings)
-
-#### [settings_screen.dart](file:///E:/Premises/premises/lib/features/settings/screens/settings_screen.dart)
-- Update "Working Hours" and "Attendance Policy" tabs:
-    - Add a Department selector dropdown at the top.
-    - Switching departments reloads the policy settings for that specific department.
-    - Saving updates only the selected department's policy.
+#### [AndroidManifest.xml](file:///E:/Premises/premises/android/app/src/main/AndroidManifest.xml)
+- Double-check every occurrence of "premises" vs "Premises".
 
 ---
 
 ## Verification Plan
 
-### Automated Tests
-- `pytest backend/tests/test_department_policy.py`: New test suite to verify:
-    - On-time/Late check-in for different departments with different schedules.
-    - Migration correctness (copying org defaults to departments).
-- `flutter analyze`: Ensure no frontend breakages.
+### Manual Verification (Physical Device Simulation)
+1. **Startup flow**:
+   - Cold start -> Splash -> Login -> Dashboard.
+   - Verify banner says "Initializing real-time tracking..." then "Waiting for geofence config..." then "Inside/Outside Campus" in sequence.
+2. **Geofence Detection**:
+   - Manually update Geofence in Admin.
+   - Verify Faculty Dashboard updates the "Outside/Inside" status instantly (within 10s refresh or via manual re-evaluation).
+3. **History Load**:
+   - Open Attendance History.
+   - Verify records are retrieved correctly.
+4. **Offline Resilience**:
+   - Disconnect internet.
+   - Verify Sync Bar says "Working Offline" but Location Banner still says "Inside Campus" (GPS works without data).
 
-### Manual Verification
-1. **Migration**: Run `alembic upgrade head` and verify `attendance_policies` table is populated for all existing departments.
-2. **Admin Config**:
-    - Set Dept A to 09:00 - 17:00.
-    - Set Dept B to 10:00 - 18:00.
-    - Verify both persist independently.
-3. **Faculty Workflow**:
-    - Log in as Faculty in Dept A; verify dashboard shows 09:00 - 17:00.
-    - Log in as Faculty in Dept B; verify dashboard shows 10:00 - 18:00.
-    - Perform a check-in at 09:30; Verify Dept A is marked LATE/PRESENT and Dept B is still within grace/on-time (if applicable).
+### Automated Tests
+- `pytest backend/tests/test_main.py`: Verify existing endpoints.
+- `flutter analyze`: Ensure zero errors.

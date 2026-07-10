@@ -14,8 +14,6 @@
 /// App Configuration
 /// ---------------------------------------------------------------------------
 
-library app_config;
-
 /// Base API URL
 const String kApiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',

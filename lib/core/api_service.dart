@@ -541,18 +541,22 @@ class ApiService {
     String? notes,
     double? latitude,
     double? longitude,
+    String? submittedAt,
   }) async {
-    await post('/faculty/reason-requests', {
+    final body = {
       'reason_type': reasonType,
       'notes': notes,
       'latitude': latitude,
       'longitude': longitude,
-    });
+      'submitted_at': submittedAt ?? DateTime.now().toUtc().toIso8601String(),
+    };
+
+    await post('/faculty/reason-requests', body);
   }
 
   /// GET /faculty/notifications
-  static Future<List<Map<String, dynamic>>> fetchNotifications() async {
-    final response = await get('/faculty/notifications');
+  static Future<List<Map<String, dynamic>>> fetchNotifications({int skip = 0, int limit = 50}) async {
+    final response = await get('/faculty/notifications?skip=$skip&limit=$limit');
     final data = response['data'] as List;
     return List<Map<String, dynamic>>.from(data.map((item) => Map<String, dynamic>.from(item as Map)));
   }
@@ -565,6 +569,16 @@ class ApiService {
   /// POST /faculty/notifications/mark-all-read
   static Future<void> markAllNotificationsAsRead() async {
     await post('/faculty/notifications/mark-all-read', {});
+  }
+
+  /// DELETE /faculty/notifications
+  static Future<void> clearAllNotifications() async {
+    await delete('/faculty/notifications');
+  }
+
+  /// DELETE /faculty/notifications/{id}
+  static Future<void> deleteNotification(String id) async {
+    await delete('/faculty/notifications/$id');
   }
 
   /// GET /faculty/attendance-history
@@ -597,6 +611,7 @@ class ApiService {
     required double latitude,
     required double longitude,
     required String eventType,
+    String? eventTime,
   }) async {
     final devId = await SessionManager.getDeviceIdentifier();
     final body = {
@@ -604,8 +619,9 @@ class ApiService {
       'longitude': longitude,
       'event_type': eventType,
       'device_identifier': devId,
-      'event_time': DateTime.now().toUtc().toIso8601String(),
+      'event_time': eventTime ?? DateTime.now().toUtc().toIso8601String(),
     };
+
     final response = await post('/attendance/check-in', body);
     return response['data'] as Map<String, dynamic>;
   }

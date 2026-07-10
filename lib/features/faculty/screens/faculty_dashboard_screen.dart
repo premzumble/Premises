@@ -6,10 +6,11 @@ import '../../../core/api_service.dart';
 import '../../../core/design_system/app_colors.dart';
 import '../../../core/design_system/app_sizes.dart';
 import '../../../core/design_system/app_typography.dart';
-import '../../../core/widgets/status_chip.dart';
 import '../../../core/session_manager.dart';
 import '../../../core/services/location_service.dart';
 import '../../../core/services/notification_service.dart';
+import '../../../core/services/notification_persistence_service.dart';
+import '../../../core/services/geofence_websocket.dart';
 
 
 class FacultyDashboardScreen extends StatefulWidget {
@@ -19,25 +20,42 @@ class FacultyDashboardScreen extends StatefulWidget {
   State<FacultyDashboardScreen> createState() => _FacultyDashboardScreenState();
 }
 
-class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
-  static bool _sentCompletedNotification = false;
+class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> with WidgetsBindingObserver {
   bool _isLoading = true;
   String? _errorMessage;
   Map<String, dynamic>? _summary;
   Timer? _refreshTimer;
   StreamSubscription<String?>? _statusSubscription;
   StreamSubscription<bool>? _failedSubscription;
+  StreamSubscription<void>? _eventLoggedSubscription;
+  StreamSubscription<String>? _transitionSubscription;
   String? _locationStatus;
   bool _isActionLoading = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadDashboard(showLoading: true);
     
     // Start periodic background updates
     _refreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       _loadDashboard(showLoading: false);
+    });
+
+    // Initialize WebSockets for push notifications of geofence changes
+    GeofenceWebSocketClient.connect();
+
+    // Listen to real-time geofence transitions to update the UI instantly
+    _transitionSubscription = LocationService.geofenceTransitionController.stream.listen((status) {
+      debugPrint('[Dashboard] Real-time Geofence Transition: $status');
+      if (mounted) {
+        setState(() {
+          if (_summary != null) {
+            _summary!['campus_status'] = status;
+          }
+        });
+      }
     });
 
     // Listen to location service updates
@@ -55,6 +73,11 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
       if (mounted) setState(() {});
     });
 
+    _eventLoggedSubscription = LocationService.eventLoggedController.stream.listen((_) {
+      debugPrint('[Dashboard] Location Event Logged. Reloading dashboard summary...');
+      _loadDashboard(showLoading: false);
+    });
+
     // Initialize services
     NotificationService.requestPermissions();
     LocationService.initialize();
@@ -62,10 +85,23 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    GeofenceWebSocketClient.disconnect();
     _refreshTimer?.cancel();
     _statusSubscription?.cancel();
     _failedSubscription?.cancel();
+    _eventLoggedSubscription?.cancel();
+    _transitionSubscription?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      debugPrint('[Dashboard] App Resumed. Refreshing data...');
+      _loadDashboard(showLoading: false);
+      LocationService.syncWithServer();
+    }
   }
 
   Future<void> _loadDashboard({required bool showLoading}) async {
@@ -97,21 +133,34 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
         final int rem2 = data['reminder_2_minutes'] as int? ?? 0;
         final int rem3 = data['reminder_3_minutes'] as int? ?? 0;
         final int eval = data['evaluation_minutes'] as int? ?? 15;
+        final String? gfId = data['geofence_id'] as String?;
+        final String? gfUpdatedAt = data['geofence_updated_at'] as String?;
 
-        debugPrint('[DASHBOARD CACHE] type=$type, lat=$lat, lng=$lng, rad=$rad');
+        final bool geofenceChanged = gfId != SessionManager.geofenceId || gfUpdatedAt != SessionManager.geofenceUpdatedAt;
+
+        debugPrint('[DASHBOARD CACHE] type=$type, lat=$lat, lng=$lng, rad=$rad, geofenceChanged=$geofenceChanged');
         debugPrint('[DASHBOARD CACHE] vertices=${vertices != null ? (vertices as List).length : "null"} items');
         debugPrint('[DASHBOARD CACHE] verticesJson=${verticesJson != null ? "${verticesJson.length} chars" : "null"}');
         if (verticesJson != null) {
           debugPrint('[DASHBOARD CACHE] verticesJson first 200 chars: ${verticesJson.substring(0, verticesJson.length < 200 ? verticesJson.length : 200)}');
         }
 
-        SessionManager.cacheGeofence(lat, lng, rad, type, verticesJson, allowedOutside, rem1, rem2, rem3, eval);
-        LocationService.checkCurrentLocation();
+        SessionManager.cacheGeofence(lat, lng, rad, type, verticesJson, allowedOutside, rem1, rem2, rem3, eval, gfId, gfUpdatedAt);
+        
+        // Force location service to re-evaluate if geofence configuration changed or if it hasn't evaluated initial location yet
+        final bool shouldForce = geofenceChanged || !LocationService.hasEvaluatedInitialLocation;
+        if (shouldForce) {
+          debugPrint('[DASHBOARD] Geofence config changed or initial evaluation pending. Forcing immediate GPS evaluation.');
+          LocationService.hasEvaluatedInitialLocation = true;
+          LocationService.forceReevaluate(geofenceChanged: true);
+        }
 
         // Update location service check-in/out reference
         LocationService.checkInTime = data['check_in_time'];
         LocationService.checkOutTime = data['check_out_time'];
-        LocationService.serverCampusStatus = data['campus_status'];
+        if (!LocationService.shouldIgnoreServerStatus) {
+          LocationService.serverCampusStatus = data['campus_status'];
+        }
         _checkOfficiallyRegisteredNotification(data);
       }
     } on ApiException catch (e) {
@@ -131,17 +180,19 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
     }
   }
 
-  void _checkOfficiallyRegisteredNotification(Map<String, dynamic> data) {
+  Future<void> _checkOfficiallyRegisteredNotification(Map<String, dynamic> data) async {
     final checkIn = data['check_in_time'];
     final campusStatus = data['campus_status'];
 
     if (checkIn == null) {
-      _sentCompletedNotification = false;
       return;
     }
 
-    if (campusStatus == 'COMPLETED' && !_sentCompletedNotification) {
-      _sentCompletedNotification = true;
+    final todayStr = DateTime.now().toIso8601String().split('T').first;
+    final alreadyShown = await NotificationPersistenceService.isShown('completion', date: todayStr);
+
+    if (campusStatus == 'COMPLETED' && !alreadyShown) {
+      await NotificationPersistenceService.markAsShown('completion', date: todayStr);
       NotificationService.showNotification(
         id: 100,
         title: 'Attendance Registered',
@@ -151,6 +202,8 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
   }
 
   Future<void> _registerAttendanceManually() async {
+
+
     setState(() {
       _isActionLoading = true;
     });
@@ -246,7 +299,9 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
                 children: [
                   // Welcome Profile Card
                   _buildProfileCard(theme, isDark, s),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 16),
+                  
+
 
                   // Standard automatic attendance status banner
                   _buildLocationStatusBanner(theme, isDark),
@@ -289,9 +344,13 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
                       final presenceColumn = Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          Text("Today's Presence Info", style: AppTypography.h3),
+                          Text("Today's Attendance Status", style: AppTypography.h3),
                           const SizedBox(height: 12),
-                          _buildPresenceCard(isDark, s),
+                          _buildAttendanceCard(isDark, s),
+                          const SizedBox(height: 20),
+                          Text("Working Hours", style: AppTypography.h3),
+                          const SizedBox(height: 12),
+                          _buildWorkingHoursCard(isDark, s),
                         ],
                       );
 
@@ -340,6 +399,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
       ),
     );
   }
+
 
   Widget _buildProfileCard(ThemeData theme, bool isDark, Map<String, dynamic> s) {
     final name = SessionManager.fullName ?? 'Faculty User';
@@ -463,6 +523,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
   Widget _buildPresenceTag(Map<String, dynamic> s) {
     final campusStatus = s['campus_status'] ?? 'UNKNOWN';
     final bool? gpsInside = LocationService.isInsideGeofence;
+    final bool? effectiveInside = gpsInside ?? (campusStatus == 'UNKNOWN' ? null : (campusStatus == 'INSIDE'));
 
     final String label;
     final Color color;
@@ -470,7 +531,7 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
     if (campusStatus == 'COMPLETED') {
       label = 'OFFICIALLY REGISTERED';
       color = AppColors.success;
-    } else if (gpsInside == true || campusStatus == 'INSIDE') {
+    } else if (effectiveInside == true) {
       label = 'IN PREMISES';
       color = AppColors.success;
     } else {
@@ -512,37 +573,47 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
   }
 
   Widget _buildLocationStatusBanner(ThemeData theme, bool isDark) {
-    // Determine display text based on actual GPS + attendance state
+    // Determine display text based ONLY on actual GPS status
     final String status;
     final IconData icon;
     final Color color;
+    String? subtitle;
+    List<Widget> badges = [];
 
     final bool? gpsInside = LocationService.isInsideGeofence;
     final String? locMsg = _locationStatus ?? LocationService.statusMessage;
     final campusStatus = _summary?['campus_status'] ?? 'UNKNOWN';
+    final bool? effectiveInside = gpsInside ?? (campusStatus == 'UNKNOWN' ? null : (campusStatus == 'INSIDE'));
 
-    if (campusStatus == 'COMPLETED') {
-      // Day is done — positive confirmation
-      status = 'Attendance completed for today. See you tomorrow!';
-      icon = Icons.check_circle_outline;
-      color = AppColors.success;
-    } else if (locMsg != null && (locMsg.contains('disabled') || locMsg.contains('denied') || locMsg.contains('permanently'))) {
-      status = locMsg;
+    if (locMsg != null && (locMsg.contains('disabled') || locMsg.contains('denied') || locMsg.contains('permanently'))) {
+      status = 'GPS Service Required';
       icon = Icons.location_off_outlined;
       color = AppColors.danger;
-    } else if (gpsInside == true) {
-      status = 'You are inside the campus. Location tracking active.';
+      subtitle = locMsg;
+    } else if (effectiveInside == true) {
+      status = 'Inside Premises';
       icon = Icons.my_location;
       color = AppColors.success;
-    } else if (gpsInside == false) {
-      status = 'You are outside the campus boundary.';
+      subtitle = 'Your device is currently inside the campus boundary.';
+      badges = [
+        _buildMiniBadge('GPS ACQUIRED', AppColors.success, isDark),
+        _buildMiniBadge('MONITORING', AppColors.success, isDark),
+      ];
+    } else if (effectiveInside == false) {
+      status = 'Outside Premises';
       icon = Icons.location_searching;
-      color = campusStatus == 'COMPLETED' ? AppColors.success : Colors.orange;
+      color = Colors.orange;
+      subtitle = 'Your device is outside the campus boundary.';
+      badges = [
+        _buildMiniBadge('GPS ACQUIRED', AppColors.success, isDark),
+        _buildMiniBadge('MONITORING', Colors.orange, isDark),
+      ];
     } else {
-      // GPS not resolved yet
-      status = locMsg ?? 'Initializing real-time tracking...';
+      // GPS not resolved yet or waiting for config
+      status = locMsg ?? 'Initializing tracking...';
       icon = Icons.gps_not_fixed;
       color = Colors.grey;
+      subtitle = 'Acquiring high-accuracy GPS lock...';
     }
 
     return Card(
@@ -553,17 +624,68 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
       ),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
-        child: Row(
+        child: Column(
           children: [
-            Icon(icon, color: color, size: 20),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                status,
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-              ),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(icon, color: color, size: 22),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        status,
+                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                      ),
+                      Text(
+                        subtitle ?? '',
+                        style: TextStyle(fontSize: 11, color: isDark ? Colors.grey[400] : Colors.grey[600]),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
+            if (badges.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+              Row(
+                children: badges
+                    .expand((widget) => [widget, const SizedBox(width: 8)])
+                    .toList()
+                  ..removeLast(),
+              ),
+            ],
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMiniBadge(String text, Color color, bool isDark) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: color.withOpacity(0.2)),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
+          fontSize: 9,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 0.5,
         ),
       ),
     );
@@ -596,19 +718,78 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> {
     );
   }
 
-  Widget _buildPresenceCard(bool isDark, Map<String, dynamic> s) {
+  Map<String, dynamic> _getAttendanceStateLabelAndColor(Map<String, dynamic> s) {
+    final campusStatus = s['campus_status'] ?? 'UNKNOWN';
+    final attendanceStatus = s['attendance_status'] ?? 'NOT_STARTED';
+
+    if (campusStatus == 'COMPLETED') {
+      return {'label': 'Daily Shift Completed', 'color': AppColors.success};
+    }
+    
+    switch (attendanceStatus) {
+      case 'PRESENT':
+        return {'label': 'Checked In', 'color': AppColors.success};
+      case 'ABSENT':
+        return {'label': 'Absent', 'color': AppColors.danger};
+      case 'HALF_DAY':
+        return {'label': 'Half Day', 'color': AppColors.warning};
+      case 'OUTSIDE':
+        return {'label': 'Checked In (Outside)', 'color': AppColors.warning};
+      default:
+        return {'label': 'Pending / Not Started', 'color': Colors.grey};
+    }
+  }
+
+  Widget _buildAttendanceCard(bool isDark, Map<String, dynamic> s) {
+    final state = _getAttendanceStateLabelAndColor(s);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(20.0),
         child: Column(
           children: [
-            _buildInfoRow(Icons.pin_drop_outlined, 'Campus Boundary Status:', s['campus_status'] ?? 'UNKNOWN'),
+            _buildInfoRow(Icons.rule_folder_outlined, 'Attendance Status:', state['label'], valueColor: state['color']),
             _buildInfoRow(Icons.punch_clock_outlined, 'First Gate Entrance:', _formatTime(s['check_in_time'])),
             _buildInfoRow(Icons.exit_to_app_outlined, 'Last Gate Exit:', _formatTime(s['check_out_time'])),
             _buildInfoRow(Icons.timer_outlined, 'Total Working Time:', s['working_duration'] ?? '00h 00m'),
             if (s['reason_status'] != null)
               _buildInfoRow(Icons.assignment_turned_in_outlined, 'Excusal Request Status:', s['reason_status'], 
                 valueColor: _getStatusColor(s['reason_status'])),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWorkingHoursCard(bool isDark, Map<String, dynamic> s) {
+    final department = s['department_name'] as String?;
+    final startTime = s['policy_start_time'] as String? ?? '--:--';
+    final endTime = s['policy_end_time'] as String? ?? '--:--';
+    final source = s['policy_source'] as String? ?? 'Organization Default Schedule';
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (department != null && department.isNotEmpty) ...[
+              Row(
+                children: [
+                  const Icon(Icons.business_outlined, size: 16, color: Colors.blue),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Department: $department',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.blue),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+            ],
+            _buildInfoRow(Icons.login_outlined, 'Expected Entry Time:', startTime),
+            _buildInfoRow(Icons.logout_outlined, 'Expected Exit Time:', endTime),
+            _buildInfoRow(Icons.info_outline, 'Schedule Source:', source, valueColor: Colors.blueGrey),
           ],
         ),
       ),

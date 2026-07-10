@@ -8,6 +8,8 @@ import '../features/auth/screens/forgot_password/forgot_password_screen.dart';
 import '../features/auth/screens/forgot_password/verify_reset_otp_screen.dart';
 import '../features/auth/screens/forgot_password/reset_password_screen.dart';
 import '../features/auth/screens/forgot_password/reset_success_screen.dart';
+import '../features/onboarding/screens/splash_screen.dart';
+import '../features/onboarding/screens/permission_onboarding_screen.dart';
 import '../features/faculty/layouts/faculty_navigation.dart';
 import '../features/faculty/screens/faculty_dashboard_screen.dart';
 import '../features/faculty/screens/faculty_history_screen.dart';
@@ -51,36 +53,49 @@ class AppRouter {
     final isFaculty = SessionManager.isFaculty;
 
     // Public routes — allow unauthenticated access
-    final publicRoutes = ['/login', '/register', '/forgot-password'];
+    final publicRoutes = ['/splash', '/login', '/register', '/forgot-password', '/onboarding'];
     final isPublic = publicRoutes.any((r) => path.startsWith(r));
 
-    // Not logged in: always redirect to login
+    // Not logged in: always redirect to login (unless already on a public route)
     if (!isLoggedIn && !isPublic) {
       return '/login';
     }
 
-    // Already logged in: redirect away from public pages to the correct dashboard
-    if (isLoggedIn && isPublic) {
-      return isAdmin ? '/admin/dashboard' : '/faculty/dashboard';
-    }
+    // Role-based access control
+    if (isLoggedIn) {
+      // 1. Trying to access public routes while logged in? Redirect to dashboard.
+      if (path == '/login' || path == '/register') {
+        return isAdmin ? '/admin/dashboard' : '/faculty/dashboard';
+      }
 
-    // Logged in as FACULTY trying to access ADMIN routes → redirect to their dashboard
-    if (isFaculty && path.startsWith('/admin')) {
-      return '/faculty/dashboard';
-    }
-
-    // Logged in as ADMIN trying to access FACULTY routes → redirect to their dashboard
-    if (isAdmin && path.startsWith('/faculty')) {
-      return '/admin/dashboard';
+      // 2. Cross-role access prevention
+      if (isFaculty && path.startsWith('/admin')) {
+        return '/faculty/dashboard';
+      }
+      if (isAdmin && path.startsWith('/faculty')) {
+        return '/admin/dashboard';
+      }
     }
 
     return null; // No redirect needed
   }
 
   static final GoRouter router = GoRouter(
-    initialLocation: '/login',
+    initialLocation: '/splash',
     redirect: _redirect,
     routes: [
+      // ----------------------------------------------------------------
+      // Bootstrap & Onboarding
+      // ----------------------------------------------------------------
+      GoRoute(
+        path: '/splash',
+        builder: (context, state) => const SplashScreen(),
+      ),
+      GoRoute(
+        path: '/onboarding',
+        builder: (context, state) => const PermissionOnboardingScreen(),
+      ),
+
       // ----------------------------------------------------------------
       // Public: Auth Routes
       // ----------------------------------------------------------------

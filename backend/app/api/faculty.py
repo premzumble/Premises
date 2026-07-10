@@ -163,12 +163,14 @@ async def submit_reason(
 
 @router.get("/notifications", response_model=StandardResponse[List[NotificationResponse]])
 async def list_notifications(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     current_user: Any = Depends(get_current_user),
     _guard: None = Depends(require_role([UserRole.FACULTY.value])),
 ):
     service = FacultyService(db)
-    notifications = await service.list_notifications(current_user.id)
+    notifications = await service.list_notifications(current_user.id, skip=skip, limit=limit)
     return StandardResponse(
         success=True,
         message="Notifications fetched successfully.",
@@ -236,6 +238,39 @@ async def mark_all_read(
     )
 
 
+@router.delete("/notifications", response_model=StandardResponse[dict])
+async def clear_notifications(
+    db: AsyncSession = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+    _guard: None = Depends(require_role([UserRole.FACULTY.value])),
+):
+    """Permanently deletes all notifications for the current faculty member."""
+    service = FacultyService(db)
+    res = await service.delete_all_notifications(current_user.id)
+    return StandardResponse(
+        success=True,
+        message=res["message"],
+        data={},
+    )
+
+
+@router.delete("/notifications/{notification_id}", response_model=StandardResponse[dict])
+async def delete_notification(
+    notification_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+    _guard: None = Depends(require_role([UserRole.FACULTY.value])),
+):
+    """Deletes a specific notification."""
+    service = FacultyService(db)
+    res = await service.delete_notification(current_user.id, notification_id)
+    return StandardResponse(
+        success=True,
+        message=res["message"],
+        data={},
+    )
+
+
 @router.get("/attendance-history", response_model=StandardResponse[dict])
 async def get_history(
     range_type: str = Query("month"),
@@ -249,7 +284,13 @@ async def get_history(
 ):
     service = FacultyService(db)
     history = await service.list_attendance_history(
-        current_user.id, range_type, start_date, end_date, page, limit
+        faculty_id=current_user.id,
+        organization_id=current_user.organization_id,
+        range_type=range_type,
+        start_date=start_date,
+        end_date=end_date,
+        page=page,
+        limit=limit
     )
     return StandardResponse(
         success=True,

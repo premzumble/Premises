@@ -380,6 +380,16 @@ class AttendanceService:
         if active_device and active_device.device_identifier != data.device_identifier:
             raise ForbiddenException("Device verification failed. Attendance reports are bound to your active registered hardware device.")
 
+        # Check for idempotent duplicate (e.g. from offline sync)
+        existing_event_stmt = select(LocationEvent).where(
+            LocationEvent.faculty_id == faculty_id,
+            LocationEvent.event_time == data.event_time
+        )
+        existing_res = await self.db.execute(existing_event_stmt)
+        existing_event = existing_res.scalars().first()
+        if existing_event:
+            return existing_event
+
         # Check if inside/outside geofence
         is_inside, distance, geofence = await self.check_geofence_status(organization_id, data.latitude, data.longitude)
 
@@ -396,23 +406,42 @@ class AttendanceService:
 
         # 2. Fetch Hierarchical Policy (Dept -> Org Default)
         policy = await self.geofence_repo.get_policy_by_dept(organization_id, dept_id)
-        
+        if not policy:
+            policy = await self.geofence_repo.get_policy_by_org(organization_id)
+
         # Default policy times if none exist
         start_time = policy.start_time if policy else time(9, 0)
+        end_time = policy.end_time if policy else time(17, 0)
         half_day_cutoff = policy.half_day_cutoff_time if policy else time(14, 30)
 
         now_time = local_event_time.time()
 
+        # STRICTOR WORKING HOURS LOGIC
+        # 1. If shift hasn't started yet, don't create record yet, but allow event log
+        #    Wait until they enter DURING or shortly before/after shift window.
+        #    If shift has already ended for the day, don't create new records.
+
+        if now_time > end_time:
+            # Shift ended. Don't create new records for today.
+            # But let's log the event if a record ALREADY exists (e.g. late exit)
+            if not record:
+                return None
+
         if not record:
-            # First check-in of the day
+            # Create record only if it's within a reasonable window of the shift
+            # or if the user is entering the campus.
+            if not is_inside:
+                # Don't start an attendance record on an 'OUTSIDE' event if none exists.
+                return None
+
             initial_status = AttendanceStatus.PRESENT.value if now_time < half_day_cutoff else AttendanceStatus.HALF_DAY.value
             record_data = {
                 "organization_id": organization_id,
                 "faculty_id": faculty_id,
                 "attendance_date": today,
-                "first_entry_time": data.event_time if is_inside else None,
-                "last_exit_time": None if is_inside else data.event_time,
-                "status": initial_status if is_inside else AttendanceStatus.ABSENT.value,
+                "first_entry_time": data.event_time,
+                "last_exit_time": None,
+                "status": initial_status,
                 "total_inside_minutes": 0,
                 "total_outside_minutes": 0,
             }

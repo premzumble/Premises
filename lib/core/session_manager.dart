@@ -94,6 +94,7 @@ class SessionManager {
     _fullName = prefs.getString(_keyFullName);
     _organizationId = prefs.getString(_keyOrgId);
     _walkthroughCompleted = prefs.getBool(_keyWalkthroughCompleted);
+    _permissionsOnboarded = prefs.getBool(_keyPermissionsOnboarded);
 
     // Restore geofence cache
     _geofenceLatitude = prefs.getDouble('session_geofence_latitude');
@@ -101,6 +102,8 @@ class SessionManager {
     _geofenceRadius = prefs.getDouble('session_geofence_radius');
     _geofenceType = prefs.getString('session_geofence_type');
     _geofenceVerticesJson = prefs.getString('session_geofence_vertices_json');
+    _geofenceId = prefs.getString('session_geofence_id');
+    _geofenceUpdatedAt = prefs.getString('session_geofence_updated_at');
     _allowedOutsideMinutes = prefs.getInt('session_allowed_outside_minutes');
     _reminder1Minutes = prefs.getInt('session_reminder_1_minutes');
     _reminder2Minutes = prefs.getInt('session_reminder_2_minutes');
@@ -180,6 +183,8 @@ class SessionManager {
     _geofenceRadius = null;
     _geofenceType = null;
     _geofenceVerticesJson = null;
+    _geofenceId = null;
+    _geofenceUpdatedAt = null;
     unreadNotifications.value = 0;
 
     final prefs = await SharedPreferences.getInstance();
@@ -197,6 +202,8 @@ class SessionManager {
     await prefs.remove('session_geofence_radius');
     await prefs.remove('session_geofence_type');
     await prefs.remove('session_geofence_vertices_json');
+    await prefs.remove('session_geofence_id');
+    await prefs.remove('session_geofence_updated_at');
     await prefs.remove('session_allowed_outside_minutes');
     await prefs.remove('session_reminder_1_minutes');
     await prefs.remove('session_reminder_2_minutes');
@@ -210,6 +217,8 @@ class SessionManager {
   static double? _geofenceRadius;
   static String? _geofenceType;
   static String? _geofenceVerticesJson;
+  static String? _geofenceId;
+  static String? _geofenceUpdatedAt;
   static int? _allowedOutsideMinutes;
   static int? _reminder1Minutes;
   static int? _reminder2Minutes;
@@ -221,6 +230,8 @@ class SessionManager {
   static double? get geofenceRadius => _geofenceRadius;
   static String? get geofenceType => _geofenceType;
   static String? get geofenceVerticesJson => _geofenceVerticesJson;
+  static String? get geofenceId => _geofenceId;
+  static String? get geofenceUpdatedAt => _geofenceUpdatedAt;
   static int? get allowedOutsideMinutes => _allowedOutsideMinutes;
   static int? get reminder1Minutes => _reminder1Minutes;
   static int? get reminder2Minutes => _reminder2Minutes;
@@ -238,12 +249,16 @@ class SessionManager {
     int? reminder2,
     int? reminder3,
     int? evaluation,
+    String? geofenceId,
+    String? geofenceUpdatedAt,
   ]) {
     _geofenceLatitude = lat;
     _geofenceLongitude = lng;
     _geofenceRadius = rad;
     _geofenceType = type;
     _geofenceVerticesJson = verticesJson;
+    if (geofenceId != null) _geofenceId = geofenceId;
+    if (geofenceUpdatedAt != null) _geofenceUpdatedAt = geofenceUpdatedAt;
     if (allowedOutside != null) _allowedOutsideMinutes = allowedOutside;
     if (reminder1 != null) _reminder1Minutes = reminder1;
     if (reminder2 != null) _reminder2Minutes = reminder2;
@@ -259,6 +274,16 @@ class SessionManager {
         prefs.setString('session_geofence_vertices_json', verticesJson);
       } else {
         prefs.remove('session_geofence_vertices_json');
+      }
+      if (geofenceId != null) {
+        prefs.setString('session_geofence_id', geofenceId);
+      } else {
+        prefs.remove('session_geofence_id');
+      }
+      if (geofenceUpdatedAt != null) {
+        prefs.setString('session_geofence_updated_at', geofenceUpdatedAt);
+      } else {
+        prefs.remove('session_geofence_updated_at');
       }
       if (allowedOutside != null) {
         prefs.setInt('session_allowed_outside_minutes', allowedOutside);
@@ -278,6 +303,7 @@ class SessionManager {
   // -----------------------------------------------------------------------
 
   static const _keyOrgCodeBannerTriggered = 'ui_org_code_banner_triggered';
+  static const _keyPermissionsOnboarded = 'ui_permissions_onboarded';
 
   /// Returns [true] if the post-registration organization code banner should be shown.
   static Future<bool> shouldShowOrgCodeBanner() async {
@@ -295,5 +321,15 @@ class SessionManager {
   static Future<void> setOrgCodeBannerSeen() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_keyOrgCodeBannerTriggered, false);
+  }
+
+  /// Returns [true] if the user has completed the guided permission onboarding.
+  static bool get permissionsOnboarded => _permissionsOnboarded ?? false;
+  static bool? _permissionsOnboarded;
+
+  static Future<void> setPermissionsOnboarded() async {
+    _permissionsOnboarded = true;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyPermissionsOnboarded, true);
   }
 }

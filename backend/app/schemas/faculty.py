@@ -34,6 +34,8 @@ class DashboardSummaryResponse(BaseModel):
     geofence_radius: float
     geofence_type: str = "circle"
     geofence_vertices: Optional[List[GeofenceVertexResponse]] = None
+    geofence_id: Optional[uuid.UUID] = None
+    geofence_updated_at: Optional[datetime] = None
     allowed_outside_minutes: int = 25
     reminder_1_minutes: int = 0
     reminder_2_minutes: int = 0
@@ -42,6 +44,10 @@ class DashboardSummaryResponse(BaseModel):
     reason_required: bool = False
     reason_status: Optional[str] = None  # PENDING, APPROVED, REJECTED
     warning_message: Optional[str] = None
+    policy_start_time: Optional[str] = None
+    policy_end_time: Optional[str] = None
+    policy_source: Optional[str] = None
+    department_name: Optional[str] = None
 
 class ReasonRequestCreate(BaseModel):
     reason_type: str

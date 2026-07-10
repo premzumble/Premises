@@ -287,6 +287,98 @@ class EmailService:
         return success
 
     @staticmethod
+    async def send_override_email(
+        db: AsyncSession,
+        email: str,
+        faculty_name: str,
+        attendance_date: str,
+        override_status: str,
+        override_reason: str,
+        override_remarks: Optional[str] = None,
+        organization_id: Optional[uuid.UUID] = None,
+        user_id: Optional[uuid.UUID] = None
+    ) -> bool:
+        """
+        Sends an email notification when an administrator manually overrides a faculty attendance record.
+        """
+        idempotency_key = f"override_{email.strip().lower()}_{attendance_date}_{override_status}"
+
+        stmt = select(EmailLog).where(EmailLog.idempotency_key == idempotency_key)
+        res = await db.execute(stmt)
+        existing = res.scalars().first()
+
+        if existing and existing.status == "SENT":
+            return True
+
+        if not existing:
+            log_record = EmailLog(
+                organization_id=organization_id,
+                user_id=user_id,
+                recipient=email,
+                email_type="ATTENDANCE_OVERRIDE",
+                idempotency_key=idempotency_key,
+                status="PENDING",
+                attempts=1
+            )
+            db.add(log_record)
+            await db.commit()
+        else:
+            log_record = existing
+            log_record.attempts += 1
+            db.add(log_record)
+            await db.commit()
+
+        is_testing = "pytest" in sys.modules or os.environ.get("TESTING") == "true"
+        subject = "Premises - Attendance Record Updated"
+        success = False
+        error_msg = None
+
+        if is_testing:
+            success = True
+        else:
+            if not settings.SMTP_USERNAME or not settings.SMTP_PASSWORD:
+                error_msg = "SMTP credentials not configured"
+            else:
+                try:
+                    html_content = EmailService._render_template(
+                        "override_email.html",
+                        date=attendance_date,
+                        status=override_status,
+                        reason=override_reason,
+                        remarks=override_remarks
+                    )
+
+                    msg = MIMEMultipart('alternative')
+                    msg['Subject'] = subject
+                    msg['From'] = f"{settings.SMTP_FROM_NAME} <{settings.SMTP_FROM_EMAIL}>"
+                    msg['To'] = email
+
+                    plain_text = f"Your attendance for {attendance_date} has been updated to {override_status}."
+                    msg.attach(MIMEText(plain_text, 'plain'))
+                    msg.attach(MIMEText(html_content, 'html'))
+
+                    success = await asyncio.to_thread(
+                        _send_smtp_sync,
+                        msg,
+                        settings.SMTP_HOST,
+                        settings.SMTP_PORT,
+                        settings.SMTP_USERNAME,
+                        settings.SMTP_PASSWORD,
+                        settings.SMTP_TLS
+                    )
+                except Exception as e:
+                    error_msg = str(e)
+
+        log_record.status = "SENT" if success else "FAILED"
+        log_record.error_message = error_msg
+        if success:
+            log_record.sent_at = datetime.now(timezone.utc)
+
+        db.add(log_record)
+        await db.commit()
+        return success
+
+    @staticmethod
     async def verify_smtp_config() -> bool:
         """Verifies if the SMTP configuration is valid asynchronously to keep event loop safe."""
         if not settings.SMTP_USERNAME or not settings.SMTP_PASSWORD:

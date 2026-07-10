@@ -8,6 +8,8 @@ import '../../../core/design_system/app_colors.dart';
 import '../../../core/design_system/app_sizes.dart';
 import '../../../core/design_system/app_typography.dart';
 import '../../../core/session_manager.dart';
+import '../../../core/services/notification_persistence_service.dart';
+import '../../../core/services/notification_service.dart';
 
 class FacultyNavigation extends StatefulWidget {
   final Widget child;
@@ -47,6 +49,26 @@ class _FacultyNavigationState extends State<FacultyNavigation> {
       final list = await ApiService.fetchNotifications();
       final unreadCount = list.where((n) => n['read_at'] == null).length;
       SessionManager.unreadNotifications.value = unreadCount;
+
+      // Check for new unread notifications to show as pop-ups
+      for (var n in list) {
+        if (n['read_at'] == null) {
+          final id = n['id'] as String;
+          final alreadyShown = await NotificationPersistenceService.isShown(id);
+          
+          if (!alreadyShown) {
+            // Mark as shown immediately to prevent double pop-ups during async execution
+            await NotificationPersistenceService.markAsShown(id);
+            
+            NotificationService.showNotification(
+              id: id.hashCode, // Unique-ish ID for local notification
+              title: n['title'] ?? 'Notification',
+              body: n['message'] ?? '',
+              payload: id,
+            );
+          }
+        }
+      }
     } catch (_) {
       // Ignore background fetch errors
     }

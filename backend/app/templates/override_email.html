@@ -1,0 +1,27 @@
+{% extends "base_email.html" %}
+
+{% block body %}
+    <h2 style="margin-top: 0;">Attendance Record Updated</h2>
+    <p>Hello,</p>
+    <p>Your attendance record for <strong>{{ date }}</strong> has been manually updated by your organization administrator.</p>
+
+    <div class="faculty-card">
+        <p style="margin: 0; font-size: 14px;"><strong>Updated Status:</strong> <span style="color: #4f46e5; font-weight: bold;">{{ status }}</span></p>
+        <p style="margin: 8px 0 0 0; font-size: 14px;"><strong>Reason:</strong> {{ reason }}</p>
+        {% if remarks %}
+        <p style="margin: 8px 0 0 0; font-size: 14px;"><strong>Remarks:</strong> {{ remarks }}</p>
+        {% endif %}
+    </div>
+
+    <p>Please log in to the Premises app to acknowledge this update and view your current attendance history.</p>
+
+    <div style="text-align: center;">
+        <a href="#" class="button">View My History</a>
+    </div>
+
+    <div class="divider"></div>
+
+    <p style="font-size: 13px; color: #9ca3af; text-align: center;">
+        Ensuring transparency and accuracy in attendance monitoring.
+    </p>
+{% endblock %}

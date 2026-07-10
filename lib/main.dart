@@ -1,66 +1,31 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'core/theme/app_theme.dart';
-import 'core/session_manager.dart';
-import 'core/api_service.dart';
-import 'core/services/notification_service.dart';
 import 'routes/app_router.dart';
+import 'core/session_manager.dart';
 
 final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier<ThemeMode>(ThemeMode.light);
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize notification service
-  await NotificationService.initialize();
+  // 1. Restore session (Auth state) first so GoRouter can evaluate redirects correctly on page refresh
+  try {
+    await SessionManager.restore();
+  } catch (_) {}
 
-  // Restore persisted session before routing decisions are made
-  await SessionManager.restore();
-
-  // Load saved theme mode
+  // 2. Initial Local Theme Restore (Sync to prevent flickering)
+  ThemeMode initialTheme = ThemeMode.light;
   try {
     final prefs = await SharedPreferences.getInstance();
     final savedTheme = prefs.getString('theme_mode');
     if (savedTheme == 'dark') {
-      themeNotifier.value = ThemeMode.dark;
-    } else {
-      themeNotifier.value = ThemeMode.light;
+      initialTheme = ThemeMode.dark;
     }
-  } catch (e) {
-    debugPrint('[Main] Failed to load saved theme: $e');
-  }
-
-  // Validate the restored token against the live backend.
-  // If it fails (expired, wrong device, server unreachable), force re-login.
-  if (SessionManager.isLoggedIn) {
-    final valid = await _validateSession();
-    if (!valid) {
-      await SessionManager.clear();
-    }
-  }
+    themeNotifier.value = initialTheme;
+  } catch (_) {}
 
   runApp(const MyApp());
-}
-
-Future<bool> _validateSession() async {
-  try {
-    if (SessionManager.isAdmin) {
-      await ApiService.fetchSettings();
-    } else {
-      await ApiService.fetchFacultyProfile();
-    }
-    return true;
-  } on ApiException catch (e) {
-    if (e.isAuthError) {
-      debugPrint('[Main] Session validation failed (auth error): $e');
-      return false;
-    }
-    debugPrint('[Main] Session validation encountered network/server error: $e');
-    return true;
-  } catch (e) {
-    debugPrint('[Main] Session validation encountered unexpected error: $e');
-    return true;
-  }
 }
 
 

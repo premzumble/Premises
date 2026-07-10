@@ -304,41 +304,52 @@ class _SettingsScreenState extends State<SettingsScreen> {
         final resData = json.decode(response.body);
         if (resData['success'] == true && resData['data'] is List && (resData['data'] as List).isNotEmpty) {
           final geofence = resData['data'][0];
-          final String type = geofence['geofence_type'] as String? ?? 'circle';
-          final double lat = geofence['latitude'] != null ? (geofence['latitude'] as num).toDouble() : 18.403817;
-          final double lng = geofence['longitude'] != null ? (geofence['longitude'] as num).toDouble() : 76.560943;
-          final double rad = geofence['radius_meters'] != null ? (geofence['radius_meters'] as num).toDouble() : 500.0;
-          final List<dynamic>? vertices = geofence['vertices'];
+          if (geofence != null) {
+            final String type = geofence['geofence_type'] as String? ?? 'circle';
+            final List<dynamic>? vertices = geofence['vertices'];
+            
+            double lat = 18.403817;
+            double lng = 76.560943;
+            if (type == 'polygon' && vertices != null && vertices.isNotEmpty) {
+              final centroid = _calculateCentroid(vertices);
+              lat = centroid['latitude']!;
+              lng = centroid['longitude']!;
+            } else {
+              lat = geofence['latitude'] != null ? (geofence['latitude'] as num).toDouble() : 18.403817;
+              lng = geofence['longitude'] != null ? (geofence['longitude'] as num).toDouble() : 76.560943;
+            }
+            final double rad = geofence['radius_meters'] != null ? (geofence['radius_meters'] as num).toDouble() : 500.0;
 
-          // Suppress coord listener to prevent duplicate map moves
-          _suppressCoordsListener = true;
-          setState(() {
-            _savedLatitude = geofence['latitude'] != null ? lat : null;
-            _savedLongitude = geofence['longitude'] != null ? lng : null;
-            _savedRadiusMeters = geofence['radius_meters'] != null ? rad : null;
-            _geofenceType = type;
-            _geofenceVertices = vertices;
+            // Suppress coord listener to prevent duplicate map moves
+            _suppressCoordsListener = true;
+            setState(() {
+              _savedLatitude = type == 'polygon' ? lat : (geofence['latitude'] != null ? lat : null);
+              _savedLongitude = type == 'polygon' ? lng : (geofence['longitude'] != null ? lng : null);
+              _savedRadiusMeters = geofence['radius_meters'] != null ? rad : null;
+              _geofenceType = type;
+              _geofenceVertices = vertices;
 
-            _originalLatitude = geofence['latitude'] != null ? lat : null;
-            _originalLongitude = geofence['longitude'] != null ? lng : null;
-            _originalRadiusMeters = geofence['radius_meters'] != null ? rad : null;
-            _originalGeofenceType = type;
-            _originalGeofenceVertices = vertices;
-            _geofenceIsDirty = false;
+              _originalLatitude = _savedLatitude;
+              _originalLongitude = _savedLongitude;
+              _originalRadiusMeters = _savedRadiusMeters;
+              _originalGeofenceType = type;
+              _originalGeofenceVertices = vertices;
+              _geofenceIsDirty = false;
 
-            _pendingEditorData = null; // Reset pending data on fresh load
-            _latitudeController.text = lat.toStringAsFixed(6);
-            _longitudeController.text = lng.toStringAsFixed(6);
-            _manualLatController.text = lat.toStringAsFixed(6);
-            _manualLngController.text = lng.toStringAsFixed(6);
-            _radiusMeters = rad;
-            _hasGeofence = true;
-          });
-          _suppressCoordsListener = false;
-          // Move map once after all state is set
-          try {
-            _mapController.move(LatLng(lat, lng), 15.0);
-          } catch (_) {}
+              _pendingEditorData = null; // Reset pending data on fresh load
+              _latitudeController.text = lat.toStringAsFixed(6);
+              _longitudeController.text = lng.toStringAsFixed(6);
+              _manualLatController.text = lat.toStringAsFixed(6);
+              _manualLngController.text = lng.toStringAsFixed(6);
+              _radiusMeters = rad;
+              _hasGeofence = true;
+            });
+            _suppressCoordsListener = false;
+            // Move map once after all state is set
+            try {
+              _mapController.move(LatLng(lat, lng), 15.0);
+            } catch (_) {}
+          }
         } else {
           _suppressCoordsListener = true;
           setState(() {
@@ -425,6 +436,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await _saveCustomGeofence(payload);
   }
 
+  Map<String, double> _calculateCentroid(List<dynamic>? verticesList) {
+    if (verticesList == null || verticesList.isEmpty) {
+      return {'latitude': 18.403817, 'longitude': 76.560943};
+    }
+    double latSum = 0.0;
+    double lngSum = 0.0;
+    for (final v in verticesList) {
+      final m = Map<String, dynamic>.from(v);
+      latSum += (m['latitude'] as num).toDouble();
+      lngSum += (m['longitude'] as num).toDouble();
+    }
+    return {
+      'latitude': latSum / verticesList.length,
+      'longitude': lngSum / verticesList.length,
+    };
+  }
+
   Future<void> _saveCustomGeofence(Map<String, dynamic> payload) async {
     setState(() {
       _isSavingGeofence = true;
@@ -457,18 +485,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
         final resData = json.decode(response.body);
         if (resData['success'] == true) {
           final savedGf = resData['data'];
-          setState(() {
-            _geofenceType = savedGf['geofence_type'] ?? 'circle';
-            _savedLatitude = savedGf['latitude'] != null ? (savedGf['latitude'] as num).toDouble() : null;
-            _savedLongitude = savedGf['longitude'] != null ? (savedGf['longitude'] as num).toDouble() : null;
-            _savedRadiusMeters = savedGf['radius_meters'] != null ? (savedGf['radius_meters'] as num).toDouble() : null;
-            _geofenceVertices = savedGf['vertices'];
+          final type = savedGf['geofence_type'] ?? 'circle';
+          final List<dynamic>? vertices = savedGf['vertices'];
+          
+          double? lat;
+          double? lng;
+          if (type == 'polygon' && vertices != null && vertices.isNotEmpty) {
+            final centroid = _calculateCentroid(vertices);
+            lat = centroid['latitude'];
+            lng = centroid['longitude'];
+          } else {
+            lat = savedGf['latitude'] != null ? (savedGf['latitude'] as num).toDouble() : null;
+            lng = savedGf['longitude'] != null ? (savedGf['longitude'] as num).toDouble() : null;
+          }
+          final rad = savedGf['radius_meters'] != null ? (savedGf['radius_meters'] as num).toDouble() : null;
 
-            _originalGeofenceType = savedGf['geofence_type'] ?? 'circle';
-            _originalLatitude = savedGf['latitude'] != null ? (savedGf['latitude'] as num).toDouble() : null;
-            _originalLongitude = savedGf['longitude'] != null ? (savedGf['longitude'] as num).toDouble() : null;
-            _originalRadiusMeters = savedGf['radius_meters'] != null ? (savedGf['radius_meters'] as num).toDouble() : null;
-            _originalGeofenceVertices = savedGf['vertices'];
+          setState(() {
+            _geofenceType = type;
+            _savedLatitude = lat;
+            _savedLongitude = lng;
+            _savedRadiusMeters = rad;
+            _geofenceVertices = vertices;
+
+            _originalGeofenceType = type;
+            _originalLatitude = lat;
+            _originalLongitude = lng;
+            _originalRadiusMeters = rad;
+            _originalGeofenceVertices = vertices;
 
             _pendingEditorData = null; // Reset after save
             _hasGeofence = true;

@@ -143,25 +143,77 @@ class _GoogleMapEditorState extends State<GoogleMapEditor> {
     _isNotifyingParent = false;
   }
 
+  List<LatLng> _generatePolygonFromCircle(LatLng center, double radius) {
+    final List<LatLng> points = [];
+    final int numSides = 4;
+    const double earthRadius = 6378137.0;
+    final double r = radius >= 10.0 ? radius : 100.0;
+
+    for (int i = 0; i < numSides; i++) {
+      final double angle = ((i * 360.0 / numSides) + 45.0) * math.pi / 180.0;
+      final double dLat = (r * math.cos(angle)) / earthRadius;
+      final double dLng = (r * math.sin(angle)) / (earthRadius * math.cos(center.latitude * math.pi / 180.0));
+      
+      points.add(LatLng(
+        center.latitude + (dLat * 180.0 / math.pi),
+        center.longitude + (dLng * 180.0 / math.pi),
+      ));
+    }
+    return points;
+  }
+
+  LatLng _calculateCentroid(List<LatLng> points) {
+    if (points.isEmpty) return _circleCenter;
+    double latSum = 0.0;
+    double lngSum = 0.0;
+    for (final p in points) {
+      latSum += p.latitude;
+      lngSum += p.longitude;
+    }
+    return LatLng(latSum / points.length, lngSum / points.length);
+  }
+
+  double _calculateAverageRadius(LatLng center, List<LatLng> vertices) {
+    if (vertices.isEmpty) return 100.0;
+    double totalDistance = 0.0;
+    for (final v in vertices) {
+      totalDistance += _haversineDistance(center, v);
+    }
+    return totalDistance / vertices.length;
+  }
+
+  double _haversineDistance(LatLng p1, LatLng p2) {
+    const double R = 6378137.0; // Earth's mean radius in meters
+    final double dLat = (p2.latitude - p1.latitude) * math.pi / 180.0;
+    final double dLon = (p2.longitude - p1.longitude) * math.pi / 180.0;
+    final double a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(p1.latitude * math.pi / 180.0) *
+            math.cos(p2.latitude * math.pi / 180.0) *
+            math.sin(dLon / 2) *
+            math.sin(dLon / 2);
+    final double c = 2 * math.asin(math.sqrt(a));
+    return R * c;
+  }
+
   void _setMode(String mode) {
     if (_activeMode == mode) return;
     _saveHistoryState();
     setState(() {
-      _activeMode = mode;
-      
-      // Auto-recenter default polygon bounds if it's empty
-      if (mode == 'polygon' && _polygonVertices.isEmpty) {
-        final double offset = 0.001;
-        _polygonVertices = [
-          LatLng(_circleCenter.latitude - offset, _circleCenter.longitude - offset),
-          LatLng(_circleCenter.latitude + offset, _circleCenter.longitude - offset),
-          LatLng(_circleCenter.latitude + offset, _circleCenter.longitude + offset),
-          LatLng(_circleCenter.latitude - offset, _circleCenter.longitude + offset),
-        ];
+      if (mode == 'polygon') {
+        _polygonVertices = _generatePolygonFromCircle(_circleCenter, _circleRadius);
+      } else if (mode == 'circle') {
+        if (_polygonVertices.isNotEmpty) {
+          _circleCenter = _calculateCentroid(_polygonVertices);
+          _circleRadius = _calculateAverageRadius(_circleCenter, _polygonVertices);
+          if (_circleRadius < 10) _circleRadius = 10;
+          if (_circleRadius > 2000) _circleRadius = 2000;
+        }
       }
+      _activeMode = mode;
     });
     _notifyChanged();
   }
+
 
   void _saveHistoryState() {
     final state = {

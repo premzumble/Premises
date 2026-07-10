@@ -1,23 +1,15 @@
-# Task Tracking - Department-wise Working Hours
+# Task Tracking - Production Readiness & Stability
 
-- [x] Phase 1: Database Design & Models
-    - [x] Update `AttendancePolicy` in `geofence.py`
-    - [x] Update `Department` in `organization.py`
-- [x] Phase 2: Safe Database Migration
-    - [x] Generate Alembic migration
-    - [x] Implement data migration (Org -> Dept)
-    - [x] Apply migration
-- [x] Phase 3: Backend Updates
-    - [x] Update `GeofenceRepository`
-    - [x] Update `AttendanceService` evaluation logic
-    - [x] Update `FacultyService` dashboard summary
-- [x] Phase 4: API & Schemas
-    - [x] Update `geofence.py` schemas
-    - [x] Update `settings.py` endpoints
-- [x] Phase 5: Admin Panel UI
-    - [x] Implement Department selector in `SettingsScreen`
-    - [x] Hook up state management for per-department policy editing
-- [x] Phase 6: Final Validation & Testing
-    - [x] Add backend unit tests
-    - [x] Run `flutter analyze`
-    - [x] End-to-end manual verification
+- [x] Phase 8: Production Readiness (Offline, Permissions, Branding)
+- [x] Phase 9: Navigation Stability & Splash Screen
+- [/] Phase 10: Attendance Restoration & Stability Audit
+    - [ ] Fix `LocationService` early-eval race condition
+    - [ ] Separate Sync UI from GPS Monitoring UI
+    - [ ] Add `forceReevaluate` to `LocationService` for instant config response
+    - [ ] Fix Attendance History empty list regression
+    - [ ] Consolidate capitalization of "Premises" across all platforms
+- [ ] Final Verification & Testing
+    - [ ] Verify Splash -> Onboarding -> Login -> Dashboard flow
+    - [ ] Verify real-time geofence detection (Inside/Outside)
+    - [ ] Verify Offline sync of queued events
+    - [ ] Verify branded email templates

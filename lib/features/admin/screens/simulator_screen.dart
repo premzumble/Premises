@@ -110,13 +110,11 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
     try {
       final headers = await _headers;
       final response = await http.post(
-        Uri.parse('$_baseUrl/api/v1/attendance/check-in'),
+        Uri.parse('$_baseUrl/api/v1/admin/attendance/simulate-event'),
         headers: headers,
         body: json.encode({
           'faculty_id': _selectedFacultyId,
-          'latitude': 18.403817,
-          'longitude': 76.560943,
-          'simulated': true,
+          'is_entry': true,
         }),
       );
 
@@ -126,7 +124,7 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
           type: _EventType.success,
           message: '✓ CHECK-IN successful for $_selectedFacultyName\n'
               '  Record ID: ${data['data']?['id'] ?? 'N/A'}\n'
-              '  Time: ${data['data']?['check_in_time'] ?? 'N/A'}',
+              '  Time: ${data['data']?['event_time'] ?? 'N/A'}',
         ));
         if (_autoExitEnabled) {
           _startAutoExit();
@@ -159,13 +157,11 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
     try {
       final headers = await _headers;
       final response = await http.post(
-        Uri.parse('$_baseUrl/api/v1/attendance/check-out'),
+        Uri.parse('$_baseUrl/api/v1/admin/attendance/simulate-event'),
         headers: headers,
         body: json.encode({
           'faculty_id': _selectedFacultyId,
-          'latitude': 18.390000,
-          'longitude': 76.545000,
-          'simulated': true,
+          'is_entry': false,
         }),
       );
 

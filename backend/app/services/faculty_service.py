@@ -109,8 +109,12 @@ class FacultyService:
         geofence_rad = 0.0
         geofence_type = "circle"
         geofence_vertices = None
+        geofence_id = None
+        geofence_updated_at = None
 
         if geofence:
+            geofence_id = geofence.id
+            geofence_updated_at = geofence.updated_at
             geofence_type = geofence.geofence_type
             if geofence_type == "circle":
                 geofence_lat = geofence.latitude if geofence.latitude is not None else 0.0
@@ -134,8 +138,38 @@ class FacultyService:
         # Policy details
         from app.repositories.geofence_repo import GeofenceRepository
         gf_repo = GeofenceRepository(self.db)
-        policy = await gf_repo.get_policy_by_dept(faculty.organization_id, faculty.department_id)
+        
+        policy_source = "Organization Default Schedule"
+        policy = None
+        
+        if faculty.department_id:
+            # 1. Try Department Policy
+            from app.models.geofence import AttendancePolicy
+            dept_stmt = select(AttendancePolicy).where(
+                AttendancePolicy.organization_id == faculty.organization_id,
+                AttendancePolicy.department_id == faculty.department_id
+            )
+            dept_res = await self.db.execute(dept_stmt)
+            policy = dept_res.scalars().first()
+            if policy:
+                policy_source = "Department Schedule"
+        
+        if not policy:
+            # Fallback to Org Default
+            policy = await gf_repo.get_policy_by_org(faculty.organization_id)
+            policy_source = "Organization Default Schedule"
+            
         allowed_outside = policy.allowed_outside_minutes if policy else 0
+
+        # Department details
+        department_name = None
+        if faculty.department_id:
+            from app.models.organization import Department
+            dept_stmt = select(Department).where(Department.id == faculty.department_id)
+            dept_res = await self.db.execute(dept_stmt)
+            dept = dept_res.scalars().first()
+            if dept:
+                department_name = dept.name
 
         # Today's attendance record
         today = datetime.now().astimezone().date()
@@ -262,6 +296,8 @@ class FacultyService:
             geofence_radius=geofence_rad,
             geofence_type=geofence_type,
             geofence_vertices=geofence_vertices,
+            geofence_id=geofence_id,
+            geofence_updated_at=geofence_updated_at,
             allowed_outside_minutes=allowed_outside,
             reminder_1_minutes=policy.reminder_1_minutes if policy else 0,
             reminder_2_minutes=policy.reminder_2_minutes if policy else 0,
@@ -269,7 +305,11 @@ class FacultyService:
             evaluation_minutes=policy.evaluation_minutes if policy else 15,
             reason_required=reason_req,
             reason_status=reason_status,
-            warning_message=warning_msg
+            warning_message=warning_msg,
+            policy_start_time=policy.start_time.strftime("%I:%M %p") if (policy and policy.start_time) else None,
+            policy_end_time=policy.end_time.strftime("%I:%M %p") if (policy and policy.end_time) else None,
+            policy_source=policy_source,
+            department_name=department_name
         )
 
     async def submit_reason_request(self, faculty_id: uuid.UUID, data: ReasonRequestCreate) -> dict:
@@ -326,7 +366,7 @@ class FacultyService:
         await self.db.commit()
         return {"message": "Excusal reason submitted successfully. Admin review is pending."}
 
-    async def list_notifications(self, faculty_id: uuid.UUID) -> List[NotificationResponse]:
+    async def list_notifications(self, faculty_id: uuid.UUID, skip: int = 0, limit: int = 50) -> List[NotificationResponse]:
         stmt = (
             select(Notification)
             .where(
@@ -335,6 +375,8 @@ class FacultyService:
                 Notification.recipient_id == faculty_id
             )
             .order_by(desc(Notification.sent_at))
+            .offset(skip)
+            .limit(limit)
         )
         res = await self.db.execute(stmt)
         notifications = res.scalars().all()
@@ -380,15 +422,41 @@ class FacultyService:
         await self.db.commit()
         return {"message": "All notifications marked as read."}
 
+    async def delete_notification(self, faculty_id: uuid.UUID, notification_id: uuid.UUID) -> dict:
+        from sqlalchemy import delete
+        stmt = delete(Notification).where(
+            Notification.id == notification_id,
+            Notification.faculty_id == faculty_id,
+            Notification.recipient_role == "FACULTY",
+            Notification.recipient_id == faculty_id
+        )
+        await self.db.execute(stmt)
+        await self.db.commit()
+        return {"message": "Notification deleted."}
+
+    async def delete_all_notifications(self, faculty_id: uuid.UUID) -> dict:
+        from sqlalchemy import delete
+        stmt = delete(Notification).where(
+            Notification.faculty_id == faculty_id,
+            Notification.recipient_role == "FACULTY",
+            Notification.recipient_id == faculty_id
+        )
+        await self.db.execute(stmt)
+        await self.db.commit()
+        return {"message": "All notifications cleared."}
+
     async def list_attendance_history(
-        self, faculty_id: uuid.UUID, range_type: str,
+        self, faculty_id: uuid.UUID, organization_id: uuid.UUID, range_type: str,
         start_date: Optional[date] = None, end_date: Optional[date] = None,
         page: int = 1, limit: int = 10
     ) -> dict:
-        today = datetime.now().astimezone().date()
-        stmt = select(AttendanceRecord).where(AttendanceRecord.faculty_id == faculty_id)
+        stmt = select(AttendanceRecord).where(
+            AttendanceRecord.faculty_id == faculty_id,
+            AttendanceRecord.organization_id == organization_id
+        )
 
         # Filters
+        today = datetime.now().astimezone().date()
         if range_type == "today":
             stmt = stmt.where(AttendanceRecord.attendance_date == today)
         elif range_type == "week":
@@ -415,7 +483,10 @@ class FacultyService:
         record_list = []
         for r in records:
             # Check for reason requests associated
-            reason_stmt = select(ReasonRequest).where(ReasonRequest.attendance_record_id == r.id).order_by(desc(ReasonRequest.created_at))
+            reason_stmt = select(ReasonRequest).where(
+                ReasonRequest.attendance_record_id == r.id,
+                ReasonRequest.organization_id == organization_id
+            ).order_by(desc(ReasonRequest.created_at))
             reason_res = await self.db.execute(reason_stmt)
             reason = reason_res.scalars().first()
 

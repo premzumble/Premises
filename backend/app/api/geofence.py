@@ -1,7 +1,7 @@
 from typing import Any, List
 import uuid
 import httpx
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dependencies import get_current_user, require_role, get_db
 from app.core.constants import UserRole
@@ -12,6 +12,28 @@ from app.models.geofence import Geofence
 from app.repositories.geofence_repo import GeofenceRepository
 
 router = APIRouter()
+
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: str):
+        for connection in self.active_connections:
+            try:
+                await connection.send_text(message)
+            except Exception:
+                pass
+
+
+manager = ConnectionManager()
 
 
 @router.get("/search", response_model=StandardResponse[List[dict]])
@@ -154,6 +176,9 @@ async def create_geofence(
     await db.commit()
     await db.refresh(gf)
     
+    # Broadcast update to active listeners
+    await manager.broadcast("GEOFENCE_UPDATED")
+    
     return StandardResponse(
         success=True,
         message="Campus geofence created successfully.",
@@ -175,8 +200,22 @@ async def delete_geofence(
         
     await repo.remove(id=geofence_id)
     await db.commit()
+    
+    # Broadcast update to active listeners
+    await manager.broadcast("GEOFENCE_UPDATED")
+    
     return StandardResponse(
         success=True,
         message="Geofence deleted successfully.",
         data={},
     )
+
+
+@router.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
