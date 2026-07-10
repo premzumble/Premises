@@ -17,7 +17,7 @@
 /// Base API URL
 const String kApiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'http://192.168.68.152:8000/api/v1',
+  defaultValue: 'https://premises.aisense.co.in/api/v1',
 );
 
 /// Backend URL (without /api/v1)

@@ -32593,7 +32593,7 @@ o=t.P
 n=J
 m=A
 s=3
-return A.j(A.mt(new A.adY("http://192.168.68.152:8000/api/v1/auth/org-lookup?"+B.b.bF(p,"&"))),$async$Sy)
+return A.j(A.mt(new A.adY("https://premises.aisense.co.in/api/v1/auth/org-lookup?"+B.b.bF(p,"&"))),$async$Sy)
 case 3:q=o.a(n.B(m.nO(d),"data"))
 s=1
 break
@@ -33044,7 +33044,7 @@ var $async$alg=A.t(function(a,b){if(a===1)return A.o(b,r)
 for(;;)switch(s){case 0:$.Ve=!0
 o=$.ale
 if(o!=null)o.aV(0)
-o=A.ij("http://192.168.68.152:8000/api/v1","http://","ws://")
+o=A.ij("https://premises.aisense.co.in/api/v1","http://","ws://")
 q=A.ij(o,"https://","wss://")+"/geofence/ws"
 try{A.bi().$1("[WS Web] Connecting to "+A.i(q)+"...")
 o=A.bpm(q)
@@ -114180,44 +114180,44 @@ gtH(){return"\\"}}
 A.at6.prototype={
 VN(a){$.ad2().q(0,this,a)}}
 A.ae4.prototype={
-$0(){var s=this,r=A.dm("http://192.168.68.152:8000/api/v1/auth/register-admin",0,null),q=A.mv(!1),p=t.N
+$0(){var s=this,r=A.dm("https://premises.aisense.co.in/api/v1/auth/register-admin",0,null),q=A.mv(!1),p=t.N
 return A.Du(r,B.aJ.nD(A.ah(["org_name",s.a,"org_type",s.b,"admin_name",s.c,"email",s.d,"password",s.e],p,p),null),q)},
 $S:41}
 A.aea.prototype={
-$0(){var s=A.dm("http://192.168.68.152:8000/api/v1/auth/verify-otp",0,null),r=A.mv(!1),q=t.N
+$0(){var s=A.dm("https://premises.aisense.co.in/api/v1/auth/verify-otp",0,null),r=A.mv(!1),q=t.N
 return A.Du(s,B.aJ.nD(A.ah(["email",this.a,"otp",this.b],q,q),null),r)},
 $S:41}
 A.adY.prototype={
 $0(){return A.acO(A.dm(this.a,0,null),A.mv(!1))},
 $S:41}
 A.ae5.prototype={
-$0(){var s=A.dm("http://192.168.68.152:8000/api/v1/auth/register",0,null),r=A.mv(!1)
+$0(){var s=A.dm("https://premises.aisense.co.in/api/v1/auth/register",0,null),r=A.mv(!1)
 return A.Du(s,B.aJ.nD(this.a,null),r)},
 $S:41}
 A.adU.prototype={
-$0(){var s=A.dm("http://192.168.68.152:8000/api/v1/auth/login",0,null),r=A.mv(!1)
+$0(){var s=A.dm("https://premises.aisense.co.in/api/v1/auth/login",0,null),r=A.mv(!1)
 return A.Du(s,B.aJ.nD(this.a,null),r)},
 $S:41}
 A.ae2.prototype={
-$0(){var s=A.dm("http://192.168.68.152:8000/api/v1/auth/refresh",0,null),r=A.mv(!1),q=t.N
+$0(){var s=A.dm("https://premises.aisense.co.in/api/v1/auth/refresh",0,null),r=A.mv(!1),q=t.N
 return A.Du(s,B.aJ.nD(A.ah(["refresh_token",this.a],q,q),null),r)},
 $S:41}
 A.adS.prototype={
-$0(){return A.acO(A.dm("http://192.168.68.152:8000/api/v1"+this.a,0,null),A.mv(!0))},
+$0(){return A.acO(A.dm("https://premises.aisense.co.in/api/v1"+this.a,0,null),A.mv(!0))},
 $S:41}
 A.adR.prototype={
-$0(){return A.acO(A.dm("http://192.168.68.152:8000/api/v1"+this.a,0,null),A.mv(!0))},
+$0(){return A.acO(A.dm("https://premises.aisense.co.in/api/v1"+this.a,0,null),A.mv(!0))},
 $S:41}
 A.ae_.prototype={
-$0(){var s=A.dm("http://192.168.68.152:8000/api/v1"+this.a,0,null),r=A.mv(!0)
+$0(){var s=A.dm("https://premises.aisense.co.in/api/v1"+this.a,0,null),r=A.mv(!0)
 return A.Du(s,B.aJ.nD(this.b,null),r)},
 $S:41}
 A.ae0.prototype={
-$0(){var s=A.dm("http://192.168.68.152:8000/api/v1"+this.a,0,null),r=A.mv(!0)
+$0(){var s=A.dm("https://premises.aisense.co.in/api/v1"+this.a,0,null),r=A.mv(!0)
 return A.bv9(s,B.aJ.nD(this.b,null),r)},
 $S:41}
 A.adJ.prototype={
-$0(){return A.beN(A.dm("http://192.168.68.152:8000/api/v1"+this.a,0,null),A.mv(!0))},
+$0(){return A.beN(A.dm("https://premises.aisense.co.in/api/v1"+this.a,0,null),A.mv(!0))},
 $S:41}
 A.adL.prototype={
 $1(a){return A.mT(t.f.a(a),t.N,t.z)},
@@ -120612,7 +120612,7 @@ W(){var s,r,q,p=null,o="18.403817",n="76.560943",m=t.N,l=t.z,k=t.H7
 l=A.b([A.ah(["name","General","icon",B.vc],m,l),A.ah(["name","Attendance Policy","icon",B.l4],m,l),A.ah(["name","Working Hours","icon",B.kV],m,l),A.ah(["name","Campus Geofence","icon",B.oO],m,l),A.ah(["name","Departments","icon",B.kY],m,l),A.ah(["name","Security","icon",B.oQ],m,l),A.ah(["name","Notifications","icon",B.l3],m,l),A.ah(["name","Account","icon",B.fn],m,l)],k)
 m=$.ab()
 s=A.b([],k)
-r=B.c.ti("http://192.168.68.152:8000/api/v1","/api/v1","")
+r=B.c.ti("https://premises.aisense.co.in/api/v1","/api/v1","")
 q=A.b([],t.s)
 return new A.Pl(l,new A.cg(new A.cB("25",B.bH,B.aP),m),new A.cg(new A.cB("25",B.bH,B.aP),m),new A.cg(new A.cB("28",B.bH,B.aP),m),new A.cg(new A.cB("31",B.bH,B.aP),m),new A.cg(new A.cB("35",B.bH,B.aP),m),B.HV,B.HV,B.ma,B.qH,new A.cg(new A.cB(o,B.bH,B.aP),m),new A.cg(new A.cB(n,B.bH,B.aP),m),new A.cg(new A.cB(o,B.bH,B.aP),m),new A.cg(new A.cB(n,B.bH,B.aP),m),new A.aZ(p,t.am),new A.cg(B.al,m),new A.Hf(new A.ld(p,p,t.wb),new A.a5i(p,p,p),m),s,r,q,new A.cg(B.al,m),A.b([],k))}}
 A.Pl.prototype={
